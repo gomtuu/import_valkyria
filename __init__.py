@@ -8,10 +8,10 @@ from bpy_extras.io_utils import ImportHelper
 from . import valkyria
 
 bl_info = {
-        "name": "Valkyria Chronicles (.MLX, .HMD)", # ABR, MMF to come?
+        "name": "Valkyria Chronicles (.MLX, .HMD, .ABR)", # MMF, MXE to come?
         "description": "Imports model files from Valkyria Chronicles (PS3)",
         "author": "Chrrox, Gomtuu",
-        "version": (0, 5),
+        "version": (0, 6),
         "blender": (2, 63, 0),
         "location": "File > Import",
         "warning": "",
@@ -156,6 +156,31 @@ class IZCA_Model:
         for model in self.hmdl_models:
             model.finalize_blender()
 
+
+class ABRS_Model:
+    # TODO: Figure out textures.
+    def __init__(self, source_file):
+        self.F = source_file
+        self.hmdl_models = []
+
+    def add_model(self, hmdl):
+        model_id = len(self.hmdl_models)
+        model = HMDL_Model(hmdl, model_id)
+        self.hmdl_models.append(model)
+        return model
+
+    def read_data(self):
+        for hmd in self.F.HMDL:
+            model = self.add_model(hmd)
+            model.read_data()
+
+    def build_blender(self):
+        for model in self.hmdl_models:
+            model.build_blender()
+
+    def finalize_blender(self):
+        for model in self.hmdl_models:
+            model.finalize_blender()
 
 class HSHP_Key_Set:
     def __init__(self, source_file, shape_key_set_id):
@@ -502,10 +527,10 @@ class ValkyriaScene:
 
 class ImportValkyria(bpy.types.Operator, ImportHelper):
     bl_idname = 'import_scene.import_valkyria'
-    bl_label = 'Valkyria Chronicles (.MLX, .HMD)' # ABR, MMF to come?
+    bl_label = 'Valkyria Chronicles (.MLX, .HMD, .ABR)' # MMF, MXE to come?
     filename_ext = "*.mlx"
     filter_glob = bpy.props.StringProperty(
-            default = "*.mlx;*.hmd",
+            default = "*.mlx;*.hmd;*.abr",
             options = {'HIDDEN'},
             )
 
@@ -516,6 +541,8 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
             model = IZCA_Model(vfile)
         elif vfile.ftype == 'HMDL':
             model = HMDL_Model(vfile, 0)
+        elif vfile.ftype == 'ABRS':
+            model = ABRS_Model(vfile)
         scene_name = os.path.basename(filename)
         self.valk_scene = ValkyriaScene(model, scene_name)
         self.valk_scene.read_data()

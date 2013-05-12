@@ -10,20 +10,20 @@ http://forum.xentax.com/viewtopic.php?p=76717#p76717
 IMPORTING MODELS INTO BLENDER
 =============================
 
-import_valkyria is a Blender 2.63+ script for importing MLX or HMD models
-from Valkyria Chronicles. To use it, you have to install it (once) and
-activate it (each time you start Blender, or in your startup file).
+import_valkyria is a Blender 2.63+ script for importing MLX, HMD, and ABR
+models from Valkyria Chronicles. To use it, you have to install it (once)
+and activate it (each time you start Blender, or in your startup file).
 
 To install it, open Blender's User Preferences panel, click the Addons tab,
 click the Install Addon button, select import_valkyria-X.X.zip, and click
 Install Addon.
 
 To activate it, open Blender's User Preferences panel, click the Addons tab,
-find "Import-Export: Valkyria Chronicles (.MLX, .HMD)", and click its
+find "Import-Export: Valkyria Chronicles (.MLX, .HMD, .ABR)", and click its
 checkbox.
 
 Once import_valkyria is installed and activated, you can import a model by
-clicking File, Import, Valkyria Chronicles (.MLX, .HMD), or by
+clicking File, Import, Valkyria Chronicles (.MLX, .HMD, .ABR), or by
 pressing space, typing valk, and choosing it from the list.
 
 
@@ -44,6 +44,9 @@ the head armature) are not supported.
 
 CHANGELOG
 =========
+
+2013-??-??: Version 0.6
+    Added preliminary support (no textures) for ABR models.
 
 2013-05-11: Version 0.5
     Renamed from hmdl_import to import_valkyria.
