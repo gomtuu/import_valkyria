@@ -45,7 +45,8 @@ the head armature) are not supported.
 CHANGELOG
 =========
 
-2013-??-??: Version 0.5
+2013-05-11: Version 0.5
+    Renamed from hmdl_import to import_valkyria.
     Heavily refactored for encapsulation and extensibility.
     Handles bones differently, allowing fingertip articulation.
     Supports shape keys for facial expressions, etc.
