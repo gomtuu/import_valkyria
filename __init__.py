@@ -8,7 +8,7 @@ from bpy_extras.io_utils import ImportHelper
 from . import valkyria
 
 bl_info = {
-        "name": "Valkyria Chronicles (.MLX, .HMD, .ABR)", # MMF, MXE to come?
+        "name": "Valkyria Chronicles (.MLX, .HMD, .ABR, .MXE)", # MMF to come?
         "description": "Imports model files from Valkyria Chronicles (PS3)",
         "author": "Chrrox, Gomtuu",
         "version": (0, 6),
@@ -181,6 +181,56 @@ class ABRS_Model:
     def finalize_blender(self):
         for model in self.hmdl_models:
             model.finalize_blender()
+
+
+class MXEN_Model:
+    # TODO: EV_OBJ_026.MXE causes vertex group error
+    # TODO: Support MXE files with multiple models and textures
+    def __init__(self, source_file):
+        self.F = source_file
+        self.texture_packs = []
+        self.hmdl_models = []
+
+    def add_htex(self, htex):
+        htex_id = len(self.texture_packs)
+        htex_pack = HTEX_Pack(htex, htex_id)
+        self.texture_packs.append(htex_pack)
+        return htex_pack
+
+    def add_model(self, hmdl):
+        model_id = len(self.hmdl_models)
+        model = HMDL_Model(hmdl, model_id)
+        self.hmdl_models.append(model)
+        return model
+
+    def read_data(self):
+        path = os.path.dirname(self.F.filename)
+        mxec = self.F.MXEC[0]
+        mxec.read_data()
+        assert len(mxec.texture_filenames) == 1 and len(mxec.model_filenames) == 1
+        texture_filename = mxec.texture_filenames[0].upper()
+        texture_filepath = os.path.join(path, texture_filename)
+        htx = valkyria.files.valk_open(texture_filepath)[0]
+        htx.find_inner_files()
+        htex_pack = self.add_htex(htx)
+        htex_pack.read_data()
+        model_filename = mxec.model_filenames[0][0].upper()
+        model_filepath = os.path.join(path, model_filename)
+        hmd = valkyria.files.valk_open(model_filepath)[0]
+        hmd.find_inner_files()
+        model = self.add_model(hmd)
+        model.read_data()
+
+    def build_blender(self):
+        for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
+            texture_pack.build_blender()
+            model.build_blender()
+            model.assign_materials(texture_pack.htsf_images)
+
+    def finalize_blender(self):
+        for model in self.hmdl_models:
+            model.finalize_blender()
+
 
 class HSHP_Key_Set:
     def __init__(self, source_file, shape_key_set_id):
@@ -527,10 +577,10 @@ class ValkyriaScene:
 
 class ImportValkyria(bpy.types.Operator, ImportHelper):
     bl_idname = 'import_scene.import_valkyria'
-    bl_label = 'Valkyria Chronicles (.MLX, .HMD, .ABR)' # MMF, MXE to come?
+    bl_label = 'Valkyria Chronicles (.MLX, .HMD, .ABR, .MXE)' # MMF to come?
     filename_ext = "*.mlx"
     filter_glob = bpy.props.StringProperty(
-            default = "*.mlx;*.hmd;*.abr",
+            default = "*.mlx;*.hmd;*.abr;*.mxe",
             options = {'HIDDEN'},
             )
 
@@ -543,6 +593,8 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
             model = HMDL_Model(vfile, 0)
         elif vfile.ftype == 'ABRS':
             model = ABRS_Model(vfile)
+        elif vfile.ftype == 'MXEN':
+            model = MXEN_Model(vfile)
         scene_name = os.path.basename(filename)
         self.valk_scene = ValkyriaScene(model, scene_name)
         self.valk_scene.read_data()
