@@ -185,7 +185,6 @@ class ABRS_Model:
 
 class MXEN_Model:
     # TODO: EV_OBJ_026.MXE causes vertex group error
-    # TODO: Support MXE files with multiple models and textures
     def __init__(self, source_file):
         self.F = source_file
         self.texture_packs = []
@@ -207,19 +206,28 @@ class MXEN_Model:
         path = os.path.dirname(self.F.filename)
         mxec = self.F.MXEC[0]
         mxec.read_data()
-        assert len(mxec.texture_filenames) == 1 and len(mxec.model_filenames) == 1
-        texture_filename = mxec.texture_filenames[0].upper()
-        texture_filepath = os.path.join(path, texture_filename)
-        htx = valkyria.files.valk_open(texture_filepath)[0]
-        htx.find_inner_files()
-        htex_pack = self.add_htex(htx)
-        htex_pack.read_data()
-        model_filename = mxec.model_filenames[0][0].upper()
-        model_filepath = os.path.join(path, model_filename)
-        hmd = valkyria.files.valk_open(model_filepath)[0]
-        hmd.find_inner_files()
-        model = self.add_model(hmd)
-        model.read_data()
+        for mxec_model in mxec.models:
+            model_file_desc = mxec_model["model_file"]
+            texture_file_desc = mxec_model["texture_file"]
+            if model_file_desc["is_inside"] == 0:
+                model_filename = model_file_desc["filename"].upper()
+                model_filepath = os.path.join(path, model_filename)
+                hmd = valkyria.files.valk_open(model_filepath)[0]
+                hmd.find_inner_files()
+                model = self.add_model(hmd)
+                model.read_data()
+            elif model_file_desc["is_inside"] == 0x200:
+                raise NotImplementedError()
+            if texture_file_desc["is_inside"] == 0:
+                texture_filename = texture_file_desc["filename"].upper()
+                texture_filepath = os.path.join(path, texture_filename)
+                htx = valkyria.files.valk_open(texture_filepath)[0]
+                htx.find_inner_files()
+                htex_pack = self.add_htex(htx)
+                htex_pack.read_data()
+            elif texture_file_desc["is_inside"] == 0x100:
+                raise NotImplementedError()
+
 
     def build_blender(self):
         for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
