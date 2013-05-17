@@ -202,38 +202,49 @@ class MXEN_Model:
         self.hmdl_models.append(model)
         return model
 
-    def read_data(self):
+    def open_file(self, filename):
         path = os.path.dirname(self.F.filename)
+        model_filepath = os.path.join(path, filename.upper())
+        return valkyria.files.valk_open(model_filepath)[0]
+
+    def read_data(self):
         mxec = self.F.MXEC[0]
         mxec.read_data()
+        if hasattr(mxec, "mmf_file"):
+            mmf = self.open_file(mxec.mmf_file["filename"])
+            mmf.find_inner_files()
+            mmf.read_data()
         for mxec_model in mxec.models:
+            if not "model_file" in mxec_model:
+                continue
             model_file_desc = mxec_model["model_file"]
             texture_file_desc = mxec_model["texture_file"]
             if model_file_desc["is_inside"] == 0:
-                model_filename = model_file_desc["filename"].upper()
-                model_filepath = os.path.join(path, model_filename)
-                hmd = valkyria.files.valk_open(model_filepath)[0]
+                hmd = self.open_file(model_file_desc["filename"])
                 hmd.find_inner_files()
                 model = self.add_model(hmd)
                 model.read_data()
             elif model_file_desc["is_inside"] == 0x200:
-                raise NotImplementedError()
+                hmd = mmf.named_models[model_file_desc["filename"]]
+                model = self.add_model(hmd)
+                model.read_data()
             if texture_file_desc["is_inside"] == 0:
-                texture_filename = texture_file_desc["filename"].upper()
-                texture_filepath = os.path.join(path, texture_filename)
-                htx = valkyria.files.valk_open(texture_filepath)[0]
+                htx = self.open_file(texture_file_desc["filename"])
                 htx.find_inner_files()
                 htex_pack = self.add_htex(htx)
                 htex_pack.read_data()
             elif texture_file_desc["is_inside"] == 0x100:
-                raise NotImplementedError()
+                #raise NotImplementedError()
+                pass
 
 
     def build_blender(self):
-        for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
-            texture_pack.build_blender()
+        for model in self.hmdl_models:
             model.build_blender()
-            model.assign_materials(texture_pack.htsf_images)
+        #for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
+        #    texture_pack.build_blender()
+        #    model.build_blender()
+        #    model.assign_materials(texture_pack.htsf_images)
 
     def finalize_blender(self):
         for model in self.hmdl_models:
