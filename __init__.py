@@ -234,6 +234,8 @@ class MXEN_Model:
                 hmd = mmf.named_models[model_file_desc["filename"]]
                 model = self.add_model(hmd)
                 model.read_data()
+            model.mxec_location = mathutils.Vector((mxec_model["location_x"], mxec_model["location_y"], mxec_model["location_z"]))
+            model.mxec_rotation = mathutils.Vector((radians(mxec_model["rotation_x"]), radians(mxec_model["rotation_y"]), radians(mxec_model["rotation_z"])))
             if texture_file_desc["is_inside"] == 0:
                 htx = self.open_file(texture_file_desc["filename"])
                 htx.find_inner_files()
@@ -250,6 +252,9 @@ class MXEN_Model:
         for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
             texture_pack.build_blender()
             model.build_blender()
+            model.empty.location = model.mxec_location
+            model.empty.rotation_mode = 'XYZ'
+            model.empty.rotation_euler = model.mxec_rotation
             model.assign_materials(texture_pack.htsf_images)
 
     def finalize_blender(self):
@@ -574,6 +579,7 @@ class ValkyriaScene:
                 if area.type == 'VIEW_3D':
                     for space in area.spaces:
                         if space.type == 'VIEW_3D':
+                            space.clip_end = 20000
                             space.viewport_shade = 'TEXTURED'
                             if hasattr(space, 'show_backface_culling'):
                                 space.show_backface_culling = True
