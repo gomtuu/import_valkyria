@@ -214,6 +214,12 @@ class MXEN_Model:
             mmf = self.open_file(mxec.mmf_file["filename"])
             mmf.find_inner_files()
             mmf.read_data()
+        if hasattr(mxec, "htr_file"):
+            htr = self.open_file(mxec.htr_file["filename"])
+            htr.read_data()
+        if hasattr(mxec, "merge_htx_file"):
+            merge_htx = self.open_file(mxec.merge_htx_file["filename"])
+            merge_htx.find_inner_files()
         for mxec_model in mxec.models:
             if not "model_file" in mxec_model:
                 continue
@@ -234,17 +240,17 @@ class MXEN_Model:
                 htex_pack = self.add_htex(htx)
                 htex_pack.read_data()
             elif texture_file_desc["is_inside"] == 0x100:
-                #raise NotImplementedError()
-                pass
-
+                texture_pack = Texture_Pack()
+                for htsf_i in htr.texture_packs[texture_file_desc["htr_index"]]["htsf_ids"]:
+                    htsf = texture_pack.add_image(merge_htx.HTSF[htsf_i], str(htsf_i))
+                    htsf.read_data()
+                self.texture_packs.append(texture_pack)
 
     def build_blender(self):
-        for model in self.hmdl_models:
+        for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
+            texture_pack.build_blender()
             model.build_blender()
-        #for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
-        #    texture_pack.build_blender()
-        #    model.build_blender()
-        #    model.assign_materials(texture_pack.htsf_images)
+            model.assign_materials(texture_pack.htsf_images)
 
     def finalize_blender(self):
         for model in self.hmdl_models:
