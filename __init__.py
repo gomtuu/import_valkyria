@@ -236,6 +236,7 @@ class MXEN_Model:
                 model.read_data()
             model.mxec_location = mathutils.Vector((mxec_model["location_x"], mxec_model["location_y"], mxec_model["location_z"]))
             model.mxec_rotation = mathutils.Vector((radians(mxec_model["rotation_x"]), radians(mxec_model["rotation_y"]), radians(mxec_model["rotation_z"])))
+            model.mxec_scale = (mxec_model["scale_x"], mxec_model["scale_y"], mxec_model["scale_z"])
             if texture_file_desc["is_inside"] == 0:
                 htx = self.open_file(texture_file_desc["filename"])
                 htx.find_inner_files()
@@ -255,6 +256,7 @@ class MXEN_Model:
             model.empty.location = model.mxec_location
             model.empty.rotation_mode = 'XYZ'
             model.empty.rotation_euler = model.mxec_rotation
+            model.empty.scale = model.mxec_scale
             model.assign_materials(texture_pack.htsf_images)
 
     def finalize_blender(self):
