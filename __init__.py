@@ -477,31 +477,28 @@ class KFMD_Model:
             material_dict["bpy"] = material = bpy.data.materials.new(name)
             material.game_settings.use_backface_culling = material_dict["use_backface_culling"]
             material.specular_intensity = 0.0
-            if material_dict["texture_ptr"]:
+            if material_dict["texture0_ptr"]:
                 slot0 = material.texture_slots.add()
                 slot0.texture_coords = 'UV'
                 if material_dict["use_alpha"]:
-                    slot0.texture = material_dict["texture"]["bpy_alpha"]
+                    slot0.texture = material_dict["texture0"]["bpy_alpha"]
                     slot0.use_map_alpha = True
                     slot0.alpha_factor = 1.0
                 else:
-                    slot0.texture = material_dict["texture"]["bpy"]
+                    slot0.texture = material_dict["texture0"]["bpy"]
             if material_dict["use_alpha"]:
                 material.use_transparency = True
                 material.transparency_method = 'Z_TRANSPARENCY'
                 material.alpha = 0.0
-            if material_dict["normal_ptr"]:
+            if material_dict["texture1_ptr"]:
                 slot1 = material.texture_slots.add()
                 slot1.texture_coords = 'UV'
-                #slot1.texture = material_dict["normal"]["bpy_normal"]
-                if material_dict["use_alpha"]:
-                    slot1.texture = material_dict["normal"]["bpy_alpha"]
-                    slot1.use_map_alpha = True
-                    slot1.alpha_factor = 1.0
+                if material_dict["use_normal"]:
+                    slot1.texture = material_dict["texture1"]["bpy_normal"]
+                    slot1.use_map_color_diffuse = False
+                    slot1.use_map_normal = True
                 else:
-                    slot1.texture = material_dict["normal"]["bpy"]
-                #slot1.use_map_color_diffuse = False
-                #slot1.use_map_normal = True
+                    slot1.texture = material_dict["texture1"]["bpy_alpha"]
             if material_dict["use_backface_culling"]:
                 slot2 = material.texture_slots.add()
                 if self.oneside is None:
