@@ -388,6 +388,7 @@ class KFMD_Model:
             for face in mesh_dict["faces"]:
                 face_array.extend(face)
             mesh.tessfaces.foreach_set("vertices_raw", face_array)
+            mesh.update()
             # Move accessories to proper places
             parent_bone_id = mesh_dict["object"]["parent_bone_id"]
             if parent_bone_id:
@@ -492,9 +493,15 @@ class KFMD_Model:
             if material_dict["normal_ptr"]:
                 slot1 = material.texture_slots.add()
                 slot1.texture_coords = 'UV'
-                slot1.texture = material_dict["normal"]["bpy_normal"]
-                slot1.use_map_color_diffuse = False
-                slot1.use_map_normal = True
+                #slot1.texture = material_dict["normal"]["bpy_normal"]
+                if material_dict["use_alpha"]:
+                    slot1.texture = material_dict["normal"]["bpy_alpha"]
+                    slot1.use_map_alpha = True
+                    slot1.alpha_factor = 1.0
+                else:
+                    slot1.texture = material_dict["normal"]["bpy"]
+                #slot1.use_map_color_diffuse = False
+                #slot1.use_map_normal = True
             if material_dict["use_backface_culling"]:
                 slot2 = material.texture_slots.add()
                 if self.oneside is None:
@@ -513,16 +520,21 @@ class KFMD_Model:
         for mesh in self.meshes:
             material = self.materials[mesh["object"]["material_ptr"]]["bpy"]
             mesh["bpy"].data.materials.append(material)
-            if hasattr(material.texture_slots[0], "texture"):
-                mesh["bpy"].data.uv_textures.new()
-                uv_faces = mesh["bpy"].data.tessface_uv_textures.active.data[:]
-                image = material.texture_slots[0].texture.image
-                for i, face in enumerate(mesh["faces"]):
-                    mesh["bpy"].data.tessfaces[i].use_smooth = 1
-                    uv_faces[i].uv1 = (mesh["vertices"][face[0]]["u"], mesh["vertices"][face[0]]["v"] + 1)
-                    uv_faces[i].uv2 = (mesh["vertices"][face[1]]["u"], mesh["vertices"][face[1]]["v"] + 1)
-                    uv_faces[i].uv3 = (mesh["vertices"][face[2]]["u"], mesh["vertices"][face[2]]["v"] + 1)
-                    uv_faces[i].image = image
+            u = ["u", "u2"]
+            v = ["v", "v2"]
+            for slot_i in range(2):
+                if hasattr(material.texture_slots[slot_i], "texture") and material.texture_slots[slot_i].texture.type == 'IMAGE':
+                    uvname = "UVMap-{}".format(slot_i)
+                    uv_texture = mesh["bpy"].data.uv_textures.new(uvname)
+                    uv_layer = mesh["bpy"].data.uv_layers[uvname]
+                    material.texture_slots[slot_i].uv_layer = uvname
+                    image = material.texture_slots[slot_i].texture.image
+                    for i, face in enumerate(mesh["faces"]):
+                        mesh["bpy"].data.polygons[i].use_smooth = 1
+                        uv_layer.data[i*3 + 0].uv = (mesh["vertices"][face[0]][u[slot_i]], mesh["vertices"][face[0]][v[slot_i]] + 1)
+                        uv_layer.data[i*3 + 1].uv = (mesh["vertices"][face[1]][u[slot_i]], mesh["vertices"][face[1]][v[slot_i]] + 1)
+                        uv_layer.data[i*3 + 2].uv = (mesh["vertices"][face[2]][u[slot_i]], mesh["vertices"][face[2]][v[slot_i]] + 1)
+                        uv_texture.data[i].image = image
 
     def build_shape_keys(self, shape_key_set):
         scene = bpy.context.scene
