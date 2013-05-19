@@ -22,6 +22,7 @@ bl_info = {
 class Texture_Pack:
     def __init__(self):
         self.htsf_images = []
+        self.blender_built = False
 
     def add_image(self, htsf, filename):
         image = HTSF_Image(htsf)
@@ -32,6 +33,7 @@ class Texture_Pack:
     def build_blender(self):
         for image in self.htsf_images:
             image.build_blender()
+        self.blender_built = True
 
 
 class HTEX_Pack:
@@ -39,6 +41,7 @@ class HTEX_Pack:
         self.F = source_file
         self.htex_id = htex_id
         self.htsf_images = []
+        self.blender_built = False
 
     def add_image(self, htsf):
         htsf_id = len(self.htsf_images)
@@ -55,6 +58,7 @@ class HTEX_Pack:
     def build_blender(self):
         for image in self.htsf_images:
             image.build_blender()
+        self.blender_built = True
 
 
 class HTSF_Image:
@@ -208,7 +212,6 @@ class MXEN_Model:
         return valkyria.files.valk_open(model_filepath)[0]
 
     def read_data(self):
-        # TODO: Optimization: Be smarter about texture files that are used multiple times.
         mxec = self.F.MXEC[0]
         mxec.read_data()
         if hasattr(mxec, "mmf_file"):
@@ -222,14 +225,13 @@ class MXEN_Model:
             merge_htx = self.open_file(mxec.merge_htx_file["filename"])
             merge_htx.find_inner_files()
         model_cache = {}
+        texture_cache = {}
         for mxec_model in mxec.models:
             if not "model_file" in mxec_model:
                 continue
             model_file_desc = mxec_model["model_file"]
-            texture_file_desc = mxec_model["texture_file"]
             model = model_cache.get(model_file_desc["filename"], None)
             if model is None:
-                print("Opening model", model_file_desc["filename"])
                 if model_file_desc["is_inside"] == 0:
                     hmd = self.open_file(model_file_desc["filename"])
                     hmd.find_inner_files()
@@ -242,33 +244,38 @@ class MXEN_Model:
                 model_cache[model_file_desc["filename"]] = model
                 model.mxec_filename = model_file_desc["filename"]
             else:
-                print("Using cached model:", model_file_desc["filename"])
                 self.hmdl_models.append(model)
             self.instances.append((
                 mathutils.Vector((mxec_model["location_x"], mxec_model["location_y"], mxec_model["location_z"])),
                 mathutils.Vector((radians(mxec_model["rotation_x"]), radians(mxec_model["rotation_y"]), radians(mxec_model["rotation_z"]))),
                 (mxec_model["scale_x"], mxec_model["scale_y"], mxec_model["scale_z"])
                 ))
-            print("Opening texture", texture_file_desc["filename"])
-            if texture_file_desc["is_inside"] == 0:
-                htx = self.open_file(texture_file_desc["filename"])
-                htx.find_inner_files()
-                htex_pack = self.add_htex(htx)
-                htex_pack.read_data()
-            elif texture_file_desc["is_inside"] == 0x100:
-                texture_pack = Texture_Pack()
-                for htsf_i in htr.texture_packs[texture_file_desc["htr_index"]]["htsf_ids"]:
-                    texture_filename = "{}-{:03d}".format(texture_file_desc["filename"], htsf_i)
-                    htsf = texture_pack.add_image(merge_htx.HTSF[htsf_i], texture_filename)
-                    htsf.read_data()
+            texture_file_desc = mxec_model["texture_file"]
+            texture_pack = texture_cache.get(texture_file_desc["filename"])
+            if texture_pack is None:
+                if texture_file_desc["is_inside"] == 0:
+                    htx = self.open_file(texture_file_desc["filename"])
+                    htx.find_inner_files()
+                    texture_pack = self.add_htex(htx)
+                    texture_pack.read_data()
+                elif texture_file_desc["is_inside"] == 0x100:
+                    texture_pack = Texture_Pack()
+                    for htsf_i in htr.texture_packs[texture_file_desc["htr_index"]]["htsf_ids"]:
+                        texture_filename = "{}-{:03d}".format(texture_file_desc["filename"], htsf_i)
+                        htsf = texture_pack.add_image(merge_htx.HTSF[htsf_i], texture_filename)
+                        htsf.read_data()
+                    self.texture_packs.append(texture_pack)
+                texture_cache[texture_file_desc["filename"]] = texture_pack
+            else:
                 self.texture_packs.append(texture_pack)
 
     def build_blender(self):
         for texture_pack, model, instance_info in zip(self.texture_packs, self.hmdl_models, self.instances):
-            print("Building textures")
-            texture_pack.build_blender()
+            if texture_pack.blender_built:
+                pass
+            else:
+                texture_pack.build_blender()
             if model.empty:
-                print("Duplicating model", model.mxec_filename)
                 # Model has already been built and has an "empty" object
                 bpy.ops.object.select_all(action='DESELECT')
                 bpy.context.scene.objects.active = model.empty
@@ -277,10 +284,8 @@ class MXEN_Model:
                 bpy.ops.object.duplicate(linked=True)
                 instance = bpy.context.scene.objects.active
             else:
-                print("Building model", model.mxec_filename)
                 model.build_blender()
                 model.empty.name = model.mxec_filename
-                print("Assigning Materials")
                 model.assign_materials(texture_pack.htsf_images)
                 instance = model.empty
             instance.location = instance_info[0]
