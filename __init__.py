@@ -74,7 +74,6 @@ class HTSF_Image:
         tempdir = bpy.app.tempdir
         dds_path = os.path.join(tempdir, self.filename)
         self.write_tmp_dds(dds_path)
-        # TODO: Create alpha and non-alpha versions
         self.image = load_image(dds_path)
         self.image.pack()
         os.remove(dds_path)
@@ -189,6 +188,7 @@ class MXEN_Model:
         self.F = source_file
         self.texture_packs = []
         self.hmdl_models = []
+        self.instances = []
 
     def add_htex(self, htex):
         htex_id = len(self.texture_packs)
@@ -208,7 +208,7 @@ class MXEN_Model:
         return valkyria.files.valk_open(model_filepath)[0]
 
     def read_data(self):
-        # TODO: Optimization: Be smarter about model files that are used multiple times.
+        # TODO: Optimization: Be smarter about texture files that are used multiple times.
         mxec = self.F.MXEC[0]
         mxec.read_data()
         if hasattr(mxec, "mmf_file"):
@@ -221,26 +221,35 @@ class MXEN_Model:
         if hasattr(mxec, "merge_htx_file"):
             merge_htx = self.open_file(mxec.merge_htx_file["filename"])
             merge_htx.find_inner_files()
+        model_cache = {}
         for mxec_model in mxec.models:
             if not "model_file" in mxec_model:
                 continue
             model_file_desc = mxec_model["model_file"]
             texture_file_desc = mxec_model["texture_file"]
-            #print("Opening model", model_file_desc["filename"])
-            if model_file_desc["is_inside"] == 0:
-                hmd = self.open_file(model_file_desc["filename"])
-                hmd.find_inner_files()
-                model = self.add_model(hmd)
-                model.read_data()
-            elif model_file_desc["is_inside"] == 0x200:
-                hmd = mmf.named_models[model_file_desc["filename"]]
-                model = self.add_model(hmd)
-                model.read_data()
-            model.mxec_filename = model_file_desc["filename"]
-            model.mxec_location = mathutils.Vector((mxec_model["location_x"], mxec_model["location_y"], mxec_model["location_z"]))
-            model.mxec_rotation = mathutils.Vector((radians(mxec_model["rotation_x"]), radians(mxec_model["rotation_y"]), radians(mxec_model["rotation_z"])))
-            model.mxec_scale = (mxec_model["scale_x"], mxec_model["scale_y"], mxec_model["scale_z"])
-            #print("Opening texture", texture_file_desc["filename"])
+            model = model_cache.get(model_file_desc["filename"], None)
+            if model is None:
+                print("Opening model", model_file_desc["filename"])
+                if model_file_desc["is_inside"] == 0:
+                    hmd = self.open_file(model_file_desc["filename"])
+                    hmd.find_inner_files()
+                    model = self.add_model(hmd)
+                    model.read_data()
+                elif model_file_desc["is_inside"] == 0x200:
+                    hmd = mmf.named_models[model_file_desc["filename"]]
+                    model = self.add_model(hmd)
+                    model.read_data()
+                model_cache[model_file_desc["filename"]] = model
+                model.mxec_filename = model_file_desc["filename"]
+            else:
+                print("Using cached model:", model_file_desc["filename"])
+                self.hmdl_models.append(model)
+            self.instances.append((
+                mathutils.Vector((mxec_model["location_x"], mxec_model["location_y"], mxec_model["location_z"])),
+                mathutils.Vector((radians(mxec_model["rotation_x"]), radians(mxec_model["rotation_y"]), radians(mxec_model["rotation_z"]))),
+                (mxec_model["scale_x"], mxec_model["scale_y"], mxec_model["scale_z"])
+                ))
+            print("Opening texture", texture_file_desc["filename"])
             if texture_file_desc["is_inside"] == 0:
                 htx = self.open_file(texture_file_desc["filename"])
                 htx.find_inner_files()
@@ -255,18 +264,29 @@ class MXEN_Model:
                 self.texture_packs.append(texture_pack)
 
     def build_blender(self):
-        for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
-            #print("Building textures")
+        for texture_pack, model, instance_info in zip(self.texture_packs, self.hmdl_models, self.instances):
+            print("Building textures")
             texture_pack.build_blender()
-            #print("Building model")
-            model.build_blender()
-            model.empty.name = model.mxec_filename
-            model.empty.location = model.mxec_location
-            model.empty.rotation_mode = 'XYZ'
-            model.empty.rotation_euler = model.mxec_rotation
-            model.empty.scale = model.mxec_scale
-            #print("Assigning Materials")
-            model.assign_materials(texture_pack.htsf_images)
+            if model.empty:
+                print("Duplicating model", model.mxec_filename)
+                # Model has already been built and has an "empty" object
+                bpy.ops.object.select_all(action='DESELECT')
+                bpy.context.scene.objects.active = model.empty
+                model.empty.select = True
+                bpy.ops.object.select_grouped(extend=True, type='CHILDREN_RECURSIVE')
+                bpy.ops.object.duplicate(linked=True)
+                instance = bpy.context.scene.objects.active
+            else:
+                print("Building model", model.mxec_filename)
+                model.build_blender()
+                model.empty.name = model.mxec_filename
+                print("Assigning Materials")
+                model.assign_materials(texture_pack.htsf_images)
+                instance = model.empty
+            instance.location = instance_info[0]
+            instance.rotation_mode = 'XYZ'
+            instance.rotation_euler = instance_info[1]
+            instance.scale = instance_info[2]
 
     def finalize_blender(self):
         for model in self.hmdl_models:
@@ -288,6 +308,7 @@ class HMDL_Model:
         self.F = source_file
         self.model_id = model_id
         self.kfmd_models = []
+        self.empty = None
 
     def add_model(self, kfmd):
         model_id = len(self.kfmd_models)
