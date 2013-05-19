@@ -47,7 +47,8 @@ CHANGELOG
 
 2013-??-??: Version 0.6
     Added preliminary support (no textures) for ABR models.
-    Added preliminary support for MXE models. Only opens simple ones.
+    Added preliminary support for MXE models.
+    Added support for double textures. Normal map support is now broken.
 
 2013-05-11: Version 0.5
     Renamed from hmdl_import to import_valkyria.
