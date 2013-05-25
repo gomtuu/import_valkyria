@@ -160,17 +160,10 @@ class IZCA_Model:
 
 
 class ABRS_Model:
-    # TODO: Figure out textures.
     def __init__(self, source_file):
         self.F = source_file
         self.texture_packs = []
         self.hmdl_models = []
-
-    def add_htex(self, htex):
-        htex_id = len(self.texture_packs)
-        htex_pack = HTEX_Pack(htex, htex_id)
-        self.texture_packs.append(htex_pack)
-        return htex_pack
 
     def add_model(self, hmdl):
         model_id = len(self.hmdl_models)
@@ -179,16 +172,21 @@ class ABRS_Model:
         return model
 
     def read_data(self):
-        hmdl_needs_htex = False
+        texture_pack = None
+        htex_count = 0
         for inner_file in self.F.inner_files:
             if inner_file.ftype == 'HMDL':
                 model = self.add_model(inner_file)
                 model.read_data()
-                hmdl_needs_htex = True
-            elif inner_file.ftype == 'HTEX' and hmdl_needs_htex:
-                htex_pack = self.add_htex(inner_file)
-                htex_pack.read_data()
-                hmdl_needs_htex = False
+                texture_pack = Texture_Pack()
+                self.texture_packs.append(texture_pack)
+            elif inner_file.ftype == 'HTEX':
+                if texture_pack:
+                    htex_pack = HTEX_Pack(inner_file, htex_count)
+                    htex_pack.read_data()
+                    for htsf in htex_pack.htsf_images:
+                        texture_pack.htsf_images.append(htsf)
+                htex_count += 1
         assert len(self.texture_packs) == len(self.hmdl_models)
 
     def build_blender(self):

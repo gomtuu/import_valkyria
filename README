@@ -46,7 +46,7 @@ CHANGELOG
 =========
 
 2013-??-??: Version 0.6
-    Added preliminary support (no textures) for ABR models.
+    Added preliminary support for ABR models.
     Added preliminary support for MXE models.
     Added support for double textures. Normal map support is now broken.
 
