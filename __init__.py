@@ -151,7 +151,6 @@ class IZCA_Model:
             texture_pack.build_blender()
             model.build_blender()
             model.assign_materials(texture_pack.htsf_images)
-        # Messed up: 3 6 8 9 11 13 25
         for shape_key_set in self.shape_key_sets:
             self.hmdl_models[1].build_shape_keys(shape_key_set)
 
