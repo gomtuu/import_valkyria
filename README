@@ -45,7 +45,7 @@ the head armature) are not supported.
 CHANGELOG
 =========
 
-2013-??-??: Version 0.6
+2013-05-25: Version 0.6
     Added preliminary support for ABR models.
     Added preliminary support for MXE models.
     Added support for double textures. Normal map support is now broken.
