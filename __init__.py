@@ -163,7 +163,14 @@ class ABRS_Model:
     # TODO: Figure out textures.
     def __init__(self, source_file):
         self.F = source_file
+        self.texture_packs = []
         self.hmdl_models = []
+
+    def add_htex(self, htex):
+        htex_id = len(self.texture_packs)
+        htex_pack = HTEX_Pack(htex, htex_id)
+        self.texture_packs.append(htex_pack)
+        return htex_pack
 
     def add_model(self, hmdl):
         model_id = len(self.hmdl_models)
@@ -172,13 +179,23 @@ class ABRS_Model:
         return model
 
     def read_data(self):
-        for hmd in self.F.HMDL:
-            model = self.add_model(hmd)
-            model.read_data()
+        hmdl_needs_htex = False
+        for inner_file in self.F.inner_files:
+            if inner_file.ftype == 'HMDL':
+                model = self.add_model(inner_file)
+                model.read_data()
+                hmdl_needs_htex = True
+            elif inner_file.ftype == 'HTEX' and hmdl_needs_htex:
+                htex_pack = self.add_htex(inner_file)
+                htex_pack.read_data()
+                hmdl_needs_htex = False
+        assert len(self.texture_packs) == len(self.hmdl_models)
 
     def build_blender(self):
-        for model in self.hmdl_models:
+        for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
+            texture_pack.build_blender()
             model.build_blender()
+            model.assign_materials(texture_pack.htsf_images)
 
     def finalize_blender(self):
         for model in self.hmdl_models:
