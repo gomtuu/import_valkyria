@@ -8,10 +8,10 @@ from bpy_extras.io_utils import ImportHelper
 from . import valkyria
 
 bl_info = {
-        "name": "Valkyria Chronicles (.MLX, .HMD, .ABR, .MXE)", # MMF to come?
+        "name": "Valkyria Chronicles (.MLX, .HMD, .ABR, .MXE)",
         "description": "Imports model files from Valkyria Chronicles (PS3)",
         "author": "Chrrox, Gomtuu",
-        "version": (0, 6),
+        "version": (0, 7),
         "blender": (2, 63, 0),
         "location": "File > Import",
         "warning": "",
@@ -244,6 +244,7 @@ class MXEN_Model:
             if not "model_file" in mxec_model:
                 continue
             model_file_desc = mxec_model["model_file"]
+            print("Reading", model_file_desc["filename"])
             model = model_cache.get(model_file_desc["filename"], None)
             if model is None:
                 if model_file_desc["is_inside"] == 0:
@@ -668,7 +669,7 @@ class ValkyriaScene:
 
 class ImportValkyria(bpy.types.Operator, ImportHelper):
     bl_idname = 'import_scene.import_valkyria'
-    bl_label = 'Valkyria Chronicles (.MLX, .HMD, .ABR, .MXE)' # MMF to come?
+    bl_label = 'Valkyria Chronicles (.MLX, .HMD, .ABR, .MXE)'
     filename_ext = "*.mlx"
     filter_glob = bpy.props.StringProperty(
             default = "*.mlx;*.hmd;*.abr;*.mxe",
