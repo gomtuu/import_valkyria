@@ -159,6 +159,28 @@ class IZCA_Model:
             model.finalize_blender()
 
 
+class IZCA_Poses:
+    def __init__(self, source_file):
+        self.F = source_file
+        self.poses = []
+
+    def read_data(self):
+        self.F.HMOT[0].read_data()
+        self.poses = self.F.HMOT[0].poses
+
+    def pose_model(self, izca_model):
+        hmdl = izca_model.hmdl_models[0]
+        kfmd = hmdl.F.KFMD[0]
+        assert len(self.poses[0]) == len(kfmd.bones)
+        for bone, pose_bone in zip(kfmd.bones, self.poses[0]):
+            print("Orig bone:", bone["location"], bone["rotation"])
+            if "location" not in pose_bone:
+                pose_bone["location"] = None
+            if "rotation" not in pose_bone:
+                pose_bone["rotation"] = None
+            print("Pose bone:", pose_bone["location"], pose_bone["rotation"])
+
+
 class ABRS_Model:
     def __init__(self, source_file):
         self.F = source_file
@@ -666,6 +688,12 @@ class ValkyriaScene:
         self.source_file.build_blender()
         self.source_file.finalize_blender()
 
+    def pose_blender(self, pose_filename):
+        poses = IZCA_Poses(valkyria.files.valk_open(pose_filename)[0])
+        poses.F.find_inner_files()
+        poses.read_data()
+        poses.pose_model(self.source_file)
+
 
 class ImportValkyria(bpy.types.Operator, ImportHelper):
     bl_idname = 'import_scene.import_valkyria'
@@ -691,6 +719,8 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
         self.valk_scene = ValkyriaScene(model, scene_name)
         self.valk_scene.read_data()
         self.valk_scene.build_blender()
+        pose_filename = os.path.join(os.path.dirname(filename), "VALCA02AD.MLX")
+        self.valk_scene.pose_blender(pose_filename)
 
     def execute(self, context):
         self.import_file(self.filepath)
