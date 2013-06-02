@@ -172,13 +172,21 @@ class IZCA_Poses:
         hmdl = izca_model.hmdl_models[0]
         kfmd = hmdl.F.KFMD[0]
         assert len(self.poses[0]) == len(kfmd.bones)
+        i = 0
         for bone, pose_bone in zip(kfmd.bones, self.poses[0]):
-            print("Orig bone:", bone["location"], bone["rotation"])
+            print("{:02x} Orig:".format(i), bone["location"], bone["rotation"])
             if "location" not in pose_bone:
                 pose_bone["location"] = None
             if "rotation" not in pose_bone:
                 pose_bone["rotation"] = None
-            print("Pose bone:", pose_bone["location"], pose_bone["rotation"])
+            print("{:02x} Pose:".format(i), pose_bone["location"], pose_bone["rotation"], pose_bone["unknown_ptr"])
+            if not pose_bone["unknown_ptr"]:
+                if pose_bone["location"]:
+                    bone["location"] = pose_bone["location"]
+                if pose_bone["rotation"]:
+                    bone["rotation"] = pose_bone["rotation"]
+            i += 1
+        hmdl.kfmd_models[0].build_armature()
 
 
 class ABRS_Model:
