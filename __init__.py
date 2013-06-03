@@ -165,28 +165,32 @@ class IZCA_Poses:
         self.poses = []
 
     def read_data(self):
-        self.F.HMOT[0].read_data()
-        self.poses = self.F.HMOT[0].poses
+        for hmot in self.F.HMOT:
+            hmot.read_data()
+            self.poses.append(hmot.bones)
 
     def pose_model(self, izca_model):
         hmdl = izca_model.hmdl_models[0]
         kfmd = hmdl.F.KFMD[0]
-        assert len(self.poses[0]) == len(kfmd.bones)
-        i = 0
-        for bone, pose_bone in zip(kfmd.bones, self.poses[0]):
-            print("{:02x} Orig:".format(i), bone["location"], bone["rotation"])
-            if "location" not in pose_bone:
-                pose_bone["location"] = None
-            if "rotation" not in pose_bone:
-                pose_bone["rotation"] = None
-            print("{:02x} Pose:".format(i), pose_bone["location"], pose_bone["rotation"], pose_bone["unknown_ptr"])
-            if not pose_bone["unknown_ptr"]:
+        #i = 0
+        for pose_bones in self.poses:
+            for bone, pose_bone in zip(kfmd.bones, pose_bones):
+                #print("{:02x} Orig:".format(i), bone["location"], bone["rotation"])
+                if "location" not in pose_bone:
+                    pose_bone["location"] = None
+                if "rotation" not in pose_bone:
+                    pose_bone["rotation"] = None
+                if "scale" not in pose_bone:
+                    pose_bone["scale"] = None
+                #print("{:02x} Pose:".format(i), pose_bone["location"], pose_bone["rotation"], pose_bone["unknown_ptr"])
                 if pose_bone["location"]:
-                    bone["location"] = pose_bone["location"]
+                    bone["location"] = map(sum, zip(pose_bone["location"], pose_bone["location_frames"][0]))
                 if pose_bone["rotation"]:
-                    bone["rotation"] = pose_bone["rotation"]
-            i += 1
-        hmdl.kfmd_models[0].build_armature()
+                    bone["rotation"] = map(sum, zip(pose_bone["rotation"], pose_bone["rotation_frames"][0]))
+                if pose_bone["scale"]:
+                    bone["scale"] = map(sum, zip(pose_bone["scale"], pose_bone["scale_frames"][0]))
+                #i += 1
+            hmdl.kfmd_models[0].build_armature()
 
 
 class ABRS_Model:
