@@ -173,6 +173,10 @@ class IZCA_Poses:
         hmdl = izca_model.hmdl_models[0]
         kfmd = hmdl.F.KFMD[0]
         #i = 0
+        for bone in kfmd.bones:
+            bone["orig_location"] = bone["location"]
+            bone["orig_rotation"] = bone["rotation"]
+            bone["orig_scale"] = bone.get("scale", (1, 1, 1))
         for pose_bones in self.poses:
             #j = 0
             for bone, pose_bone in zip(kfmd.bones, pose_bones):
@@ -191,8 +195,13 @@ class IZCA_Poses:
                     bone["scale"] = tuple(map(sum, zip(pose_bone["scale"], pose_bone["scale_frames"][0])))
                 #print("Pose {:02x} Bone {:02x}:".format(i, j), bone["location"], bone["rotation"], bone["scale"])
                 #j += 1
-            hmdl.kfmd_models[0].build_armature()
+            armature = hmdl.kfmd_models[0].build_armature()
             #i += 1
+            #armature.location = ((i % 16) * 10, int(i / 16) * -20, 0)
+            for bone in kfmd.bones:
+                bone["location"] = bone["orig_location"]
+                bone["rotation"] = bone["orig_rotation"]
+                bone["scale"] = bone.get("orig_scale", (1, 1, 1))
 
 
 class ABRS_Model:
