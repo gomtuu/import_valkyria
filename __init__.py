@@ -169,9 +169,15 @@ class IZCA_Poses:
             hmot.read_data()
             self.poses.append(hmot.bones)
 
+    def pose_from_armature(self, arm, posed_arm):
+        for bone in arm.pose.bones:
+            posed_bone = posed_arm.data.bones[bone.name]
+            print(bone.name)
+            bone.matrix = posed_bone.matrix_local
+
     def pose_model(self, izca_model):
         hmdl = izca_model.hmdl_models[0]
-        kfmd = hmdl.F.KFMD[0]
+        kfmd = hmdl.kfmd_models[0]
         #i = 0
         for bone in kfmd.bones:
             bone["orig_location"] = bone["location"]
@@ -198,10 +204,12 @@ class IZCA_Poses:
             armature = hmdl.kfmd_models[0].build_armature()
             #i += 1
             #armature.location = ((i % 16) * 10, int(i / 16) * -20, 0)
+            self.pose_from_armature(kfmd.armature, armature)
             for bone in kfmd.bones:
                 bone["location"] = bone["orig_location"]
                 bone["rotation"] = bone["orig_rotation"]
                 bone["scale"] = bone.get("orig_scale", (1, 1, 1))
+            break
 
 
 class ABRS_Model:
