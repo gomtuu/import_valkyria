@@ -170,9 +170,14 @@ class IZCA_Poses:
             self.poses.append(hmot.bones)
 
     def pose_from_armature(self, arm, posed_arm):
+        # Needs to run multiple times within script window?
+        # Even then, bones are rolled incorrectly.
         for bone in arm.pose.bones:
             posed_bone = posed_arm.data.bones[bone.name]
-            print(bone.name)
+            #posed_vector = posed_bone.tail - posed_bone.head
+            #vector = bone.tail - bone.head
+            #bone.rotation_quaternion = vector.rotation_difference(posed_vector)
+            #bone.rotation_mode = 'QUATERNION'
             bone.matrix = posed_bone.matrix_local
 
     def pose_model(self, izca_model):
@@ -204,7 +209,7 @@ class IZCA_Poses:
             armature = hmdl.kfmd_models[0].build_armature()
             #i += 1
             #armature.location = ((i % 16) * 10, int(i / 16) * -20, 0)
-            self.pose_from_armature(kfmd.armature, armature)
+            #self.pose_from_armature(kfmd.armature, armature)
             for bone in kfmd.bones:
                 bone["location"] = bone["orig_location"]
                 bone["rotation"] = bone["orig_rotation"]
