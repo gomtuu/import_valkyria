@@ -755,8 +755,8 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
         self.valk_scene = ValkyriaScene(model, scene_name)
         self.valk_scene.read_data()
         self.valk_scene.build_blender()
-        pose_filename = os.path.join(os.path.dirname(filename), "VALCA02AD.MLX")
-        self.valk_scene.pose_blender(pose_filename)
+        #pose_filename = os.path.join(os.path.dirname(filename), "VALCA02AD.MLX")
+        #self.valk_scene.pose_blender(pose_filename)
 
     def execute(self, context):
         self.import_file(self.filepath)
