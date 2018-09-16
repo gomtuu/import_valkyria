@@ -280,8 +280,20 @@ class MXEN_Model:
 
     def open_file(self, filename):
         path = os.path.dirname(self.F.filename)
-        model_filepath = os.path.join(path, filename.upper())
-        return valkyria.files.valk_open(model_filepath)[0]
+        possible_files = []
+        possible_files.append(os.path.join(path, filename.lower()))
+        possible_files.append(os.path.join(path, filename.upper()))
+        possible_files.append(os.path.join(path, '..', 'resource', 'mx', filename.lower()))
+        possible_files.append(os.path.join(path, '..', 'resource', 'mx', filename.upper()))
+        opened_file = None
+        for model_filepath in possible_files:
+            try:
+                opened_file = valkyria.files.valk_open(model_filepath)[0]
+            except FileNotFoundError:
+                pass
+        if opened_file is None:
+            raise FileNotFoundError(filename)
+        return opened_file
 
     def read_data(self):
         mxec = self.F.MXEC[0]
@@ -753,7 +765,13 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
             model = MXEN_Model(vfile)
         scene_name = os.path.basename(filename)
         self.valk_scene = ValkyriaScene(model, scene_name)
-        self.valk_scene.read_data()
+        try:
+            self.valk_scene.read_data()
+        except FileNotFoundError as e:
+            message = 'This model requires a separate file which could not be found:\n'
+            message += '    ' + str(e)
+            message += '\nTry finding the file manually and copying it into the same folder as the model you attempted to open.'
+            self.report({'ERROR'}, message)
         self.valk_scene.build_blender()
         #pose_filename = os.path.join(os.path.dirname(filename), "VALCA02AD.MLX")
         #self.valk_scene.pose_blender(pose_filename)

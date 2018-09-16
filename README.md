@@ -24,12 +24,15 @@ Once `import_valkyria` is installed and activated, you can import a model by
 clicking File, Import, Valkyria Chronicles (.MLX, .HMD, .ABR, .MXE), or by
 pressing space, typing valk, and choosing it from the list.
 
-## Splitting `DATA.CVM`
+## Finding Models
 
-Model files are contained inside `DATA.CVM`.
+If you have the Steam version of Valkyria Chronicles, you can open model files
+directly from subfolders of its data folder. One example is `valcA02aD_h.mlx`,
+which is in the `data\resource\mx` folder.
 
-To split `DATA.CVM` into usable files, use chrrox's `quickbms` script, which
-you can download here:
+If you have the Playstation 3 version of Valkyria Chronicles, you have to
+split up `DATA.CVM` to get usable models files. Use chrrox's `quickbms`
+script, which you can download here:
 
 http://forum.xentax.com/viewtopic.php?p=76717#p76717
 
@@ -47,12 +50,13 @@ relationships that exist in some models (such as between the body armature and
 the head armature) are not supported.
 
 Poses are disabled for now because I never finished this feature, but I wanted
-to release a new version for other reasons.
+to release a new version anyway.
 
 ## Changelog
 
-### 2017-??-??: Version 0.7
+### 2018-09-16: Version 0.7
 
+* Added support for the Steam version's directory structure.
 * Added preliminary support for armature poses/animations.
     (Temporarily disabled.)
 * Uploaded to github and added README.
