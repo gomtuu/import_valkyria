@@ -1640,6 +1640,20 @@ class ValkKFMM(ValkFile):
     pass
 
 
+class Valk2MIG(ValkFile):
+    # Unknown block found in Valkyria Chornicles 2 models
+
+    def read_meta(self):
+        self.seek(0)
+        self.ftype = self.read(4).decode('ascii')
+        if DEBUG:
+            print("Creating", self.ftype)
+        self.seek(0x14)
+        self.main_length = self.read_long_le()
+        self.header_length = self.read_long_le()
+        self.total_length = self.header_length + self.main_length
+
+
 file_types = {
     'IZCA': ValkIZCA,
     'MLX0': ValkMLX0,
@@ -1727,6 +1741,7 @@ file_types = {
     'VSPA': ValkVSPA,
     'VSAS': ValkVSAS,
     'VSCO': ValkVSCO,
+    'MIG.': Valk2MIG,
     }
 
 def valk_factory(F, offset=0, parent=None):
