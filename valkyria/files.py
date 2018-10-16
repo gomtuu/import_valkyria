@@ -1654,6 +1654,16 @@ class Valk2MIG(ValkFile):
         self.total_length = self.header_length + self.main_length
 
 
+class Valk4POF1(ValkFile):
+    # Unknown block found in Valkyria Chornicles 4 models
+    pass
+
+
+class Valk4WIRS(ValkFile):
+    # Unknown block found in Valkyria Chornicles 4 models
+    pass
+
+
 file_types = {
     'IZCA': ValkIZCA,
     'MLX0': ValkMLX0,
@@ -1742,6 +1752,8 @@ file_types = {
     'VSAS': ValkVSAS,
     'VSCO': ValkVSCO,
     'MIG.': Valk2MIG,
+    'POF1': Valk4POF1,
+    'WIRS': Valk4WIRS,
     }
 
 def valk_factory(F, offset=0, parent=None):
