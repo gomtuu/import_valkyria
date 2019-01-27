@@ -41,8 +41,14 @@ class ValkFile:
     def read_byte_signed(self):
         return self.read_and_unpack(1, 'b')
 
+    def read_word_le(self):
+        return self.read_and_unpack(2, '<H')
+
     def read_word_be(self):
         return self.read_and_unpack(2, '>H')
+
+    def read_word_le_signed(self):
+        return self.read_and_unpack(2, '<h')
 
     def read_word_be_signed(self):
         return self.read_and_unpack(2, '>h')
@@ -52,6 +58,9 @@ class ValkFile:
 
     def read_long_be(self):
         return self.read_and_unpack(4, '>I')
+
+    def read_float_le(self):
+        return self.read_and_unpack(4, '<f')
 
     def read_float_be(self):
         return self.read_and_unpack(4, '>f')
@@ -336,44 +345,93 @@ class ValkKFMS(ValkFile):
     # Describes model armature, materials, meshes, and textures.
     def read_toc(self):
         self.seek(self.header_length)
-        self.read(4)
-        self.bone_count = self.read_long_be()
-        self.deform_count = self.read_long_be()
-        self.read(4)
-        self.model_height = self.read_float_be()
-        self.bone_list_ptr = self.read_long_be()
-        self.read_long_be() # pointer to extra per-bone data
-        self.bone_xform_list_ptr = self.read_long_be()
-        self.material_count = self.read_long_be()
-        self.material_list_ptr = self.read_long_be()
-        self.object_count = self.read_long_be()
-        self.object_list_ptr = self.read_long_be()
-        self.mesh_count = self.read_long_be()
-        self.mesh_list_ptr = self.read_long_be()
-        self.read(4)
-        self.read(4)
-        self.texture_count = self.read_long_be()
-        self.texture_list_ptr = self.read_long_be()
-        self.read_word_be() # These 3 words are counts that correspond
-        self.read_word_be() # to the next group of 3 longs, which are
-        self.read_word_be() # pointers. Purpose is unknown.
-        self.read(2)
-        self.read_long_be()
-        self.read_long_be()
-        self.read_long_be()
-        self.read(4)
-        self.mesh_info_ptr = self.read_long_be()
+        unk1 = self.read(4)
+        if unk1[0] == '\x03':
+            self.vc_game = 4
+            self.endianness = '<'
+        elif unk1[0] == '\x01':
+            self.vc_game = 2
+            self.endianness = '<'
+        else:
+            self.vc_game = 1
+            self.endianness = '>'
+        if self.vc_game == 4:
+            self.bone_count = self.read_long_le()
+            self.deform_count = self.read_long_le() # Need to verify this
+            self.read(4)
+            self.model_height = self.read_float_le()
+            self.material_count = self.read_long_le()
+            self.object_count = self.read_long_le()
+            self.mesh_count = self.read_long_le()
+            self.read(4) # count?
+            self.texture_count = self.read_long_le()
+            self.read(4) # count?
+            self.read(4)
+            self.read(16)
+            self.bone_list_ptr = self.read_long_le()
+            self.read(4) # is this a 64-bit pointer?
+            self.read_long_le() # pointer to extra per-bone data
+            self.read(4) # is this a 64-bit pointer?
+            self.bone_xform_list_ptr = self.read_long_le()
+            self.read(4) # is this a 64-bit pointer?
+            self.material_list_ptr = self.read_long_le()
+            self.read(4) # is this a 64-bit pointer?
+            self.object_list_ptr = self.read_long_le()
+            self.read(4) # is this a 64-bit pointer?
+            self.mesh_list_ptr = self.read_long_le()
+            self.read(4) # is this a 64-bit pointer?
+            self.read(4) # unknown pointer?
+            self.read(4) # is this a 64-bit pointer?
+            self.texture_list_ptr = self.read_long_le()
+            self.read(4) # is this a 64-bit pointer?
+            self.mesh_info_ptr = self.read_long_le()
+            self.read(4) # is this a 64-bit pointer?
+        else:
+            self.bone_count = self.read_long_be()
+            self.deform_count = self.read_long_be()
+            self.read(4)
+            self.model_height = self.read_float_be()
+            self.bone_list_ptr = self.read_long_be()
+            self.read_long_be() # pointer to extra per-bone data
+            self.bone_xform_list_ptr = self.read_long_be()
+            self.material_count = self.read_long_be()
+            self.material_list_ptr = self.read_long_be()
+            self.object_count = self.read_long_be()
+            self.object_list_ptr = self.read_long_be()
+            self.mesh_count = self.read_long_be()
+            self.mesh_list_ptr = self.read_long_be()
+            self.read(4)
+            self.read(4)
+            self.texture_count = self.read_long_be()
+            self.texture_list_ptr = self.read_long_be()
+            self.read_word_be() # These 3 words are counts that correspond
+            self.read_word_be() # to the next group of 3 longs, which are
+            self.read_word_be() # pointers. Purpose is unknown.
+            self.read(2)
+            self.read_long_be()
+            self.read_long_be()
+            self.read_long_be()
+            self.read(4)
+            self.mesh_info_ptr = self.read_long_be()
 
     def read_kfmg_info(self):
         self.seek(self.mesh_info_ptr)
         self.read(4)
-        self.kfmg_bytes_per_vertex = self.read_long_be()
-        self.kfmg_face_ptr = self.read_long_be()
-        self.kfmg_face_count = self.read_long_be()
-        self.kfmg_vertex_ptr = self.read_long_be()
-        self.kfmg_vertex_count = self.read_long_be()
-        self.read(4)
-        self.read(4)
+        if self.vc_game == 4:
+            self.kfmg_bytes_per_vertex = self.read_long_le()
+            self.read(4) # 64-bit?
+            self.kfmg_face_count = self.read_long_le()
+            self.read(4) # 64-bit?
+            self.kfmg_vertex_count = self.read_long_le()
+            self.read(4) # 64-bit?
+        else:
+            self.kfmg_bytes_per_vertex = self.read_long_be()
+            self.kfmg_face_ptr = self.read_long_be()
+            self.kfmg_face_count = self.read_long_be()
+            self.kfmg_vertex_ptr = self.read_long_be()
+            self.kfmg_vertex_count = self.read_long_be()
+            self.read(4)
+            self.read(4)
 
     def read_bone_list(self):
         self.seek(self.bone_list_ptr)
@@ -618,6 +676,21 @@ class ValkKFMG(ValkFile):
                 'normal_y': self.read_half_float_be(),
                 'normal_z': self.read_half_float_be(),
                 'unknown_2': self.read(6),
+                }
+        elif self.bytes_per_vertex == 0x48:
+            vertex = {
+                'location_x': self.read_float_le(),
+                'location_y': self.read_float_le(),
+                'location_z': self.read_float_le(),
+                'normal_x': self.read_float_le(),
+                'normal_y': self.read_float_le(),
+                'normal_z': self.read_float_le(),
+                'unknown_1': self.read(4 * 4),
+                'u': self.read_float_le(),
+                'v': self.read_float_le() * -1,
+                'u2': self.read_float_le(),
+                'v2': self.read_float_le() * -1,
+                'unknown_2': self.read(4 * 4),
                 }
         elif self.bytes_per_vertex == 0x50:
             vertex = {
@@ -1664,6 +1737,31 @@ class Valk4WIRS(ValkFile):
     pass
 
 
+class Valk4MBHV(ValkFile):
+    # Unknown block found in Valkyria Chornicles 4
+    pass
+
+
+class Valk4MBMP(ValkFile):
+    # Unknown block found in Valkyria Chornicles 4
+    pass
+
+
+class Valk4MBHD(ValkFile):
+    # Unknown block found in Valkyria Chornicles 4
+    pass
+
+
+class Valk4MBMD(ValkFile):
+    # Unknown block found in Valkyria Chornicles 4
+    pass
+
+
+class Valk4SDPK(ValkFile):
+    # Unknown block found in Valkyria Chornicles 4
+    pass
+
+
 file_types = {
     'IZCA': ValkIZCA,
     'MLX0': ValkMLX0,
@@ -1754,6 +1852,11 @@ file_types = {
     'MIG.': Valk2MIG,
     'POF1': Valk4POF1,
     'WIRS': Valk4WIRS,
+    'MBHV': Valk4MBHV,
+    'MBMP': Valk4MBMP,
+    'MBHD': Valk4MBHD,
+    'MBMD': Valk4MBMD,
+    'SDPK': Valk4SDPK,
     }
 
 def valk_factory(F, offset=0, parent=None):
@@ -1767,7 +1870,7 @@ def valk_factory(F, offset=0, parent=None):
             print("Attempting to create", ftype, "file found in {} at 0x{:x}".format(F.ftype, F.tell()))
     fclass = file_types.get(ftype, ValkUnknown)
     if fclass == ValkUnknown:
-        raise NotImplementedError("File type {} not recognized.".format(ftype))
+        raise NotImplementedError("File type {} not recognized.".format(repr(ftype)))
     return fclass(F, offset)
 
 def valk_open(filename):
