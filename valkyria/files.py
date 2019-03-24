@@ -377,23 +377,23 @@ class ValkKFMS(ValkFile):
             self.read(4) # count?
             self.read(4)
             self.read(16)
-            self.bone_list_ptr = self.read_long_le()
+            self.bone_list_ptr = self.read_long_le() + 0x20
             self.read(4) # is this a 64-bit pointer?
             self.read_long_le() # pointer to extra per-bone data
             self.read(4) # is this a 64-bit pointer?
-            self.bone_xform_list_ptr = self.read_long_le()
+            self.bone_xform_list_ptr = self.read_long_le() + 0x20
             self.read(4) # is this a 64-bit pointer?
-            self.material_list_ptr = self.read_long_le()
+            self.material_list_ptr = self.read_long_le() + 0x20
             self.read(4) # is this a 64-bit pointer?
-            self.object_list_ptr = self.read_long_le()
+            self.object_list_ptr = self.read_long_le() + 0x20
             self.read(4) # is this a 64-bit pointer?
-            self.mesh_list_ptr = self.read_long_le()
+            self.mesh_list_ptr = self.read_long_le() + 0x20
             self.read(4) # is this a 64-bit pointer?
             self.read(4) # unknown pointer?
             self.read(4) # is this a 64-bit pointer?
-            self.texture_list_ptr = self.read_long_le()
+            self.texture_list_ptr = self.read_long_le() + 0x20
             self.read(4) # is this a 64-bit pointer?
-            self.mesh_info_ptr = self.read_long_le()
+            self.mesh_info_ptr = self.read_long_le() + 0x20
             self.read(4) # is this a 64-bit pointer?
         else:
             self.bone_count = self.read_long_be()
