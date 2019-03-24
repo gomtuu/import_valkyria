@@ -538,37 +538,70 @@ class ValkKFMS(ValkFile):
         self.seek(self.object_list_ptr)
         self.objects = []
         for i in range(self.object_count):
-            self.objects.append({
-                'id': self.read_long_be(),
-                'u01': self.read_word_be(), # Has vertex groups?
-                'parent_bone_id': self.read_word_be(),
-                'material_ptr': self.read_long_be(),
-                'mesh_count': self.read_long_be(),
-                'mesh_list_ptr': self.read_long_be(),
-                'kfmg_vertex_offset': self.read_long_be(),
-                'vertex_count': self.read_word_be(),
-                })
-            self.read(6)
+            if self.vc_game == 1:
+                object_row = {
+                    'id': self.read_long_be(),
+                    'u01': self.read_word_be(), # Has vertex groups?
+                    'parent_bone_id': self.read_word_be(),
+                    'material_ptr': self.read_long_be(),
+                    'mesh_count': self.read_long_be(),
+                    'mesh_list_ptr': self.read_long_be(),
+                    'kfmg_vertex_offset': self.read_long_be(),
+                    'vertex_count': self.read_word_be(),
+                    'u02': self.read(6),
+                    }
+            elif self.vc_game == 4:
+                object_row = {
+                    'id': self.read_long_le(),
+                    'u01': self.read_word_le(), # Has vertex groups?
+                    'parent_bone_id': self.read_word_le(),
+                    'material_ptr': self.read_long_le() + 0x20,
+                    'u02': self.read_long_le(),
+                    'kfmg_vertex_offset': self.read_long_le() + 0x20,
+                    'vertex_count': self.read_long_le(),
+                    'mesh_count': self.read_long_le(),
+                    'u03': self.read_long_le(),
+                    'mesh_list_ptr': self.read_long_le() + 0x20,
+                    'u04': self.read(4 * 7),
+                    }
+            self.objects.append(object_row)
 
     def read_mesh_list(self):
         self.meshes = []
         for obj in self.objects:
             self.seek(obj['mesh_list_ptr'])
             for i in range(obj['mesh_count']):
-                self.meshes.append({
-                    'vertex_group_count': self.read_word_be(),
-                    'u01': self.read_word_be(),
-                    'u02': self.read_word_be(),
-                    'vertex_count': self.read_word_be(),
-                    'faces_word_count': self.read_word_be(),
-                    'n01': self.read_long_be(),
-                    'vertex_group_map_ptr': self.read_word_be(),
-                    'first_vertex': self.read_long_be(),
-                    'faces_first_word': self.read_long_be(),
-                    'first_vertex_id': self.read_long_be(),
-                    'n02': self.read_long_be(),
-                    'object': obj,
-                    })
+                if self.vc_game == 1:
+                    mesh_row = {
+                        'vertex_group_count': self.read_word_be(),
+                        'u01': self.read_word_be(),
+                        'u02': self.read_word_be(),
+                        'vertex_count': self.read_word_be(),
+                        'faces_word_count': self.read_word_be(),
+                        'n01': self.read_long_be(),
+                        'vertex_group_map_ptr': self.read_word_be(),
+                        'first_vertex': self.read_long_be(),
+                        'faces_first_word': self.read_long_be(),
+                        'first_vertex_id': self.read_long_be(),
+                        'n02': self.read_long_be(),
+                        'object': obj,
+                        }
+                elif self.vc_game == 4:
+                    mesh_row = {
+                        'vertex_group_count': self.read_word_le(),
+                        'u01': self.read_word_le(),
+                        'u02': self.read_word_le(),
+                        'vertex_count': self.read_word_le(),
+                        'faces_word_count': self.read_word_le(),
+                        'n01': self.read_word_le(),
+                        'first_vertex': self.read_long_le(),
+                        'faces_first_word': self.read_long_le(),
+                        'first_vertex_id': self.read_long_le(),
+                        'vertex_group_map_ptr': self.read_long_le() + 0x20,
+                        'n02': self.read_long_le(),
+                        'object': obj,
+                        }
+                self.meshes.append(mesh_row)
 
     def read_vertex_group_maps(self):
         vertex_group_map = {}
@@ -627,29 +660,35 @@ class ValkKFMG(ValkFile):
         self.seek(self.header_length + self.face_ptr + first_word * 2)
         end_ptr = self.tell() + word_count * 2
         start_direction = 1
-        v1 = self.read_word_be()
-        v2 = self.read_word_be()
+        if self.vc_game == 1:
+            read_vertex_id = self.read_word_be
+        elif self.vc_game == 4:
+            read_vertex_id = self.read_word_le
+        v1 = read_vertex_id()
+        v2 = read_vertex_id()
         face_direction = start_direction
         faces = []
         while self.tell() < end_ptr:
-            v3 = self.read_word_be()
+            v3 = read_vertex_id()
             if v3 == 0xffff:
-                v1 = self.read_word_be()
-                v2 = self.read_word_be()
+                v1 = read_vertex_id()
+                v2 = read_vertex_id()
                 face_direction = start_direction
             else:
                 face_direction *= -1
                 if v1 != v2 and v2 != v3 and v3 != v1:
                     if face_direction > 0:
-                        faces.append([v3, v2, v1, 0])
+                        face = [v3, v2, v1, 0]
                     else:
-                        faces.append([v3, v1, v2, 0])
+                        face = [v3, v1, v2, 0]
+                    faces.append(face)
                 v1 = v2
                 v2 = v3
         return faces
 
     def read_vertex(self):
         if self.bytes_per_vertex == 0x2c:
+            # VC1
             vertex = {
                 'location_x': self.read_float_be(),
                 'location_y': self.read_float_be(),
@@ -667,6 +706,7 @@ class ValkKFMG(ValkFile):
                 'unknown_4': self.read(4),
                 }
         elif self.bytes_per_vertex == 0x30:
+            # VC1
             vertex = {
                 'location_x': self.read_float_be(),
                 'location_y': self.read_float_be(),
@@ -688,7 +728,28 @@ class ValkKFMG(ValkFile):
                 'normal_z': self.read_half_float_be(),
                 'unknown_2': self.read(6),
                 }
+        elif self.bytes_per_vertex == 0x40:
+            # VC4
+            vertex = {
+                'location_x': self.read_float_le(),
+                'location_y': self.read_float_le(),
+                'location_z': self.read_float_le(),
+                'normal_x': self.read_float_le(),
+                'normal_y': self.read_float_le(),
+                'normal_z': self.read_float_le(),
+                'unknown_1': self.read(4 * 4),
+                'u': self.read_float_le(),
+                'v': self.read_float_le() * -1,
+                'vertex_group_weight_1': self.read_float_le(),
+                'vertex_group_weight_2': self.read_float_le(),
+                'vertex_group_weight_3': self.read_float_le(),
+                'vertex_group_1': self.read_byte(),
+                'vertex_group_2': self.read_byte(),
+                'vertex_group_3': self.read_byte(),
+                'vertex_group_4': self.read_byte(), # Junk?
+                }
         elif self.bytes_per_vertex == 0x48:
+            # VC4
             vertex = {
                 'location_x': self.read_float_le(),
                 'location_y': self.read_float_le(),
@@ -704,6 +765,7 @@ class ValkKFMG(ValkFile):
                 'unknown_2': self.read(4 * 4),
                 }
         elif self.bytes_per_vertex == 0x50:
+            # VC1
             vertex = {
                 'location_x': self.read_float_be(),
                 'location_y': self.read_float_be(),
