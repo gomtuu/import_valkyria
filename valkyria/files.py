@@ -322,15 +322,22 @@ class ValkKFMD(ValkFile):
         kfms = self.KFMS[0]
         kfmg = self.KFMG[0]
         kfms.read_data()
+        if kfms.vc_game == 1:
+            kfmg.face_ptr = kfms.kfmg_face_ptr
+            kfmg.vertex_ptr = kfms.kfmg_vertex_ptr
+            self.bones = kfms.bones
+            self.materials = kfms.materials
+            self.textures = kfms.textures
+        elif kfms.vc_game == 4:
+            kfmg.seek(0x30)
+            kfmg.face_ptr = kfmg.read_long_le()
+            kfmg.read(4)
+            kfmg.vertex_ptr = kfmg.read_long_le()
         kfmg.bytes_per_vertex = kfms.kfmg_bytes_per_vertex
-        kfmg.face_ptr = kfms.kfmg_face_ptr
         kfmg.face_count = kfms.kfmg_face_count
-        kfmg.vertex_ptr = kfms.kfmg_vertex_ptr
         kfmg.vertex_count = kfms.kfmg_vertex_count
-        self.bones = kfms.bones
-        self.materials = kfms.materials
+        kfmg.vc_game = kfms.vc_game
         self.meshes = kfms.meshes
-        self.textures = kfms.textures
         for mesh in self.meshes:
             mesh['faces'] = kfmg.read_faces(
                 mesh['faces_first_word'],
@@ -346,15 +353,17 @@ class ValkKFMS(ValkFile):
     def read_toc(self):
         self.seek(self.header_length)
         unk1 = self.read(4)
-        if unk1[0] == '\x03':
+        if unk1[0] == 3:
             self.vc_game = 4
             self.endianness = '<'
-        elif unk1[0] == '\x01':
+        elif unk1[0] == 1:
             self.vc_game = 2
             self.endianness = '<'
-        else:
+        elif unk1[3] == 1:
             self.vc_game = 1
             self.endianness = '>'
+        else:
+            raise NotImplementedError('Unrecognized model version')
         if self.vc_game == 4:
             self.bone_count = self.read_long_le()
             self.deform_count = self.read_long_le() # Need to verify this
@@ -596,17 +605,19 @@ class ValkKFMS(ValkFile):
     def read_data(self):
         self.read_toc()
         self.read_kfmg_info()
-        self.read_bone_list()
-        self.link_bones()
-        self.read_bone_xforms()
-        self.read_bone_deforms()
-        self.read_bone_matrices()
-        self.read_material_list()
+        if self.vc_game == 1:
+            self.read_bone_list()
+            self.link_bones()
+            self.read_bone_xforms()
+            self.read_bone_deforms()
+            self.read_bone_matrices()
+            self.read_material_list()
         self.read_object_list()
         self.read_mesh_list()
         self.read_vertex_group_maps()
-        self.read_texture_list()
-        self.link_materials()
+        if self.vc_game == 1:
+            self.read_texture_list()
+            self.link_materials()
 
 
 class ValkKFMG(ValkFile):
