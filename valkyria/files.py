@@ -323,8 +323,8 @@ class ValkKFMD(ValkFile):
         kfmg = self.KFMG[0]
         kfms.read_data()
         if kfms.vc_game == 1:
-            kfmg.face_ptr = kfms.kfmg_face_ptr
-            kfmg.vertex_ptr = kfms.kfmg_vertex_ptr
+            kfmg.face_ptr = 0
+            kfmg.vertex_ptr = 0
             self.bones = kfms.bones
             self.materials = kfms.materials
             self.textures = kfms.textures
@@ -333,18 +333,23 @@ class ValkKFMD(ValkFile):
             kfmg.face_ptr = kfmg.read_long_le()
             kfmg.read(4)
             kfmg.vertex_ptr = kfmg.read_long_le()
-        kfmg.bytes_per_vertex = kfms.kfmg_bytes_per_vertex
-        kfmg.face_count = kfms.kfmg_face_count
-        kfmg.vertex_count = kfms.kfmg_vertex_count
         kfmg.vc_game = kfms.vc_game
         self.meshes = kfms.meshes
         for mesh in self.meshes:
+            if kfms.vc_game == 1:
+                fmt = 0
+            elif kfms.vc_game == 4:
+                obj = mesh['object']
+                fmt = obj['vertex_format']
+            vertex_format = kfms.vertex_formats[fmt]
             mesh['faces'] = kfmg.read_faces(
                 mesh['faces_first_word'],
-                mesh['faces_word_count'])
+                mesh['faces_word_count'],
+                vertex_format)
             mesh['vertices'] = kfmg.read_vertices(
                 mesh['first_vertex'],
-                mesh['vertex_count'])
+                mesh['vertex_count'],
+                vertex_format)
 
 
 class ValkKFMS(ValkFile):
@@ -374,7 +379,8 @@ class ValkKFMS(ValkFile):
             self.mesh_count = self.read_long_le()
             self.read(4) # count?
             self.texture_count = self.read_long_le()
-            self.read(4) # count?
+            self.vertex_format_count = self.read_long_le()
+            self.vertex_formats = []
             self.read(4)
             self.read(16)
             self.bone_list_ptr = self.read_long_le() + 0x20
@@ -421,24 +427,32 @@ class ValkKFMS(ValkFile):
             self.read_long_be()
             self.read_long_be()
             self.read(4)
+            self.vertex_format_count = 1
+            self.vertex_formats = []
             self.mesh_info_ptr = self.read_long_be()
 
     def read_kfmg_info(self):
         self.seek(self.mesh_info_ptr)
-        self.read(4)
         if self.vc_game == 4:
-            self.kfmg_bytes_per_vertex = self.read_long_le()
-            self.read(4) # 64-bit?
-            self.kfmg_face_count = self.read_long_le()
-            self.read(4) # 64-bit?
-            self.kfmg_vertex_count = self.read_long_le()
-            self.read(4) # 64-bit?
+            for i in range(self.vertex_format_count):
+                self.seek(self.mesh_info_ptr + 0x80 * i)
+                self.read(4)
+                self.vertex_formats.append({
+                    'bytes_per_vertex': self.read_long_le(),
+                    'face_ptr': self.read_long_le(),
+                    'face_count': self.read_long_le(),
+                    'vertex_ptr': self.read_long_le(),
+                    'vertex_count': self.read_long_le(),
+                    })
         else:
-            self.kfmg_bytes_per_vertex = self.read_long_be()
-            self.kfmg_face_ptr = self.read_long_be()
-            self.kfmg_face_count = self.read_long_be()
-            self.kfmg_vertex_ptr = self.read_long_be()
-            self.kfmg_vertex_count = self.read_long_be()
+            self.read(4)
+            self.vertex_formats.append({
+                'bytes_per_vertex': self.read_long_be(),
+                'face_ptr': self.read_long_be(),
+                'face_count': self.read_long_be(),
+                'vertex_ptr': self.read_long_be(),
+                'vertex_count': self.read_long_be(),
+                })
             self.read(4)
             self.read(4)
 
@@ -558,7 +572,8 @@ class ValkKFMS(ValkFile):
                     'material_ptr': self.read_long_le() + 0x20,
                     'u02': self.read_long_le(),
                     'kfmg_vertex_offset': self.read_long_le() + 0x20,
-                    'vertex_count': self.read_long_le(),
+                    'vertex_count': self.read_word_le(),
+                    'vertex_format': self.read_word_le(),
                     'mesh_count': self.read_long_le(),
                     'u03': self.read_long_le(),
                     'mesh_list_ptr': self.read_long_le() + 0x20,
@@ -656,8 +671,9 @@ class ValkKFMS(ValkFile):
 class ValkKFMG(ValkFile):
     # Doesn't contain other files.
     # Holds mesh vertex and face data.
-    def read_faces(self, first_word, word_count):
-        self.seek(self.header_length + self.face_ptr + first_word * 2)
+    def read_faces(self, first_word, word_count, vertex_format):
+        fmt_face_offset = vertex_format['face_ptr']
+        self.seek(self.header_length + self.face_ptr + fmt_face_offset + first_word * 2)
         end_ptr = self.tell() + word_count * 2
         start_direction = 1
         if self.vc_game == 1:
@@ -686,8 +702,8 @@ class ValkKFMG(ValkFile):
                 v2 = v3
         return faces
 
-    def read_vertex(self):
-        if self.bytes_per_vertex == 0x2c:
+    def read_vertex(self, bytes_per_vertex):
+        if bytes_per_vertex == 0x2c:
             # VC1
             vertex = {
                 'location_x': self.read_float_be(),
@@ -705,7 +721,7 @@ class ValkKFMG(ValkFile):
                 'v2': self.read_half_float_be() * -1,
                 'unknown_4': self.read(4),
                 }
-        elif self.bytes_per_vertex == 0x30:
+        elif bytes_per_vertex == 0x30:
             # VC1
             vertex = {
                 'location_x': self.read_float_be(),
@@ -728,7 +744,7 @@ class ValkKFMG(ValkFile):
                 'normal_z': self.read_half_float_be(),
                 'unknown_2': self.read(6),
                 }
-        elif self.bytes_per_vertex == 0x40:
+        elif bytes_per_vertex == 0x40:
             # VC4
             vertex = {
                 'location_x': self.read_float_le(),
@@ -748,7 +764,7 @@ class ValkKFMG(ValkFile):
                 'vertex_group_3': self.read_byte(),
                 'vertex_group_4': self.read_byte(), # Junk?
                 }
-        elif self.bytes_per_vertex == 0x48:
+        elif bytes_per_vertex == 0x48:
             # VC4
             vertex = {
                 'location_x': self.read_float_le(),
@@ -764,7 +780,7 @@ class ValkKFMG(ValkFile):
                 'v2': self.read_float_le() * -1,
                 'unknown_2': self.read(4 * 4),
                 }
-        elif self.bytes_per_vertex == 0x50:
+        elif bytes_per_vertex == 0x50:
             # VC1
             vertex = {
                 'location_x': self.read_float_be(),
@@ -784,11 +800,13 @@ class ValkKFMG(ValkFile):
                 }
         return vertex
 
-    def read_vertices(self, first_vertex, vertex_count):
-        self.seek(self.header_length + self.vertex_ptr + first_vertex * self.bytes_per_vertex)
+    def read_vertices(self, first_vertex, vertex_count, vertex_format):
+        fmt_bytes_per_vertex = vertex_format['bytes_per_vertex']
+        fmt_vertex_offset = vertex_format['vertex_ptr']
+        self.seek(self.header_length + self.vertex_ptr + fmt_vertex_offset + first_vertex * fmt_bytes_per_vertex)
         vertices = []
         for i in range(vertex_count):
-            vertex = self.read_vertex()
+            vertex = self.read_vertex(fmt_bytes_per_vertex)
             vertices.append(vertex)
         return vertices
 
