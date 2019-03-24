@@ -322,10 +322,10 @@ class ValkKFMD(ValkFile):
         kfms = self.KFMS[0]
         kfmg = self.KFMG[0]
         kfms.read_data()
+        self.bones = kfms.bones
         if kfms.vc_game == 1:
             kfmg.face_ptr = 0
             kfmg.vertex_ptr = 0
-            self.bones = kfms.bones
             self.materials = kfms.materials
             self.textures = kfms.textures
         elif kfms.vc_game == 4:
@@ -462,26 +462,59 @@ class ValkKFMS(ValkFile):
         for i in range(self.bone_count):
             bone = {}
             bone['ptr'] = self.tell()
-            self.read(4)
-            bone['id'] = self.read_word_be()
-            bone['parent_id'] = self.read_word_be()
-            bone['dim1'] = self.read_float_be()
-            bone['dim2'] = self.read_float_be()
-            bone['parent_ptr'] = self.read_long_be()
-            bone['fav_child_ptr'] = self.read_long_be()
-            bone['unk_bone_ptr2'] = self.read_long_be()
-            bone['bound_box_ptr'] = self.read_long_be()
-            self.read(2)
-            bone['object_count'] = self.read_word_be()
-            self.read(4)
-            bone['deform_count'] = self.read_word_be() # First bone only
-            bone['is_deform'] = self.read_word_be()
-            bone['object_ptr1'] = self.read_long_be()
-            bone['object_ptr2'] = self.read_long_be()
-            bone['object_ptr3'] = self.read_long_be()
-            bone['deform_ids_ptr'] = self.read_long_be() # First bone only
-            bone['deform_ptr'] = self.read_long_be()
-            self.read(32)
+            if self.vc_game == 1:
+                self.read(4)
+                bone['id'] = self.read_word_be()
+                bone['parent_id'] = self.read_word_be()
+                bone['dim1'] = self.read_float_be()
+                bone['dim2'] = self.read_float_be()
+                bone['parent_ptr'] = self.read_long_be()
+                bone['fav_child_ptr'] = self.read_long_be()
+                bone['unk_bone_ptr2'] = self.read_long_be()
+                bone['bound_box_ptr'] = self.read_long_be()
+                self.read(2)
+                bone['object_count'] = self.read_word_be()
+                self.read(4)
+                bone['deform_count'] = self.read_word_be() # First bone only
+                bone['is_deform'] = self.read_word_be()
+                bone['object_ptr1'] = self.read_long_be()
+                bone['object_ptr2'] = self.read_long_be()
+                bone['object_ptr3'] = self.read_long_be()
+                bone['deform_ids_ptr'] = self.read_long_be() # First bone only
+                bone['deform_ptr'] = self.read_long_be()
+                self.read(32)
+            elif self.vc_game == 4:
+                self.read(4)
+                bone['id'] = self.read_word_le()
+                bone['parent_id'] = self.read_word_le()
+                bone['dim1'] = self.read_float_le()
+                bone['dim2'] = self.read_float_le()
+                bone['parent_ptr'] = self.read_long_le() + 0x20
+                self.read(4) # 64-bit?
+                bone['fav_child_ptr'] = self.read_long_le() + 0x20
+                self.read(4) # 64-bit?
+                bone['unk_bone_ptr2'] = self.read_long_le()
+                self.read(4) # 64-bit?
+                bone['bound_box_ptr'] = self.read_long_le()
+                self.read(4) # 64-bit?
+                self.read(4) # 0x20202020
+                self.read(2)
+                bone['object_count'] = self.read_word_le()
+                self.read(4)
+                bone['deform_count'] = self.read_word_le() # First bone only
+                bone['is_deform'] = self.read_word_le()
+                bone['object_ptr1'] = self.read_long_le()
+                self.read(4) # 64-bit?
+                bone['object_ptr2'] = self.read_long_le()
+                self.read(4) # 64-bit?
+                bone['object_ptr3'] = self.read_long_le()
+                self.read(4) # 64-bit?
+                self.read(8)
+                bone['deform_ids_ptr'] = self.read_long_le() # First bone only
+                self.read(4) # 64-bit?
+                bone['deform_ptr'] = self.read_long_le()
+                self.read(4) # 64-bit?
+                self.read(48)
             self.bones.append(bone)
 
     def link_bones(self):
@@ -499,13 +532,17 @@ class ValkKFMS(ValkFile):
 
     def read_bone_xforms(self):
         self.seek(self.bone_xform_list_ptr)
+        if self.vc_game == 1:
+            read_float = self.read_float_be
+        elif self.vc_game == 4:
+            read_float = self.read_float_le
         for bone in self.bones:
-            bone['location'] = [self.read_float_be() for x in range(3)]
+            bone['location'] = [read_float() for x in range(3)]
             self.read(4)
-            bone['rotation'] = [self.read_float_be() for x in range(4)]
+            bone['rotation'] = [read_float() for x in range(4)]
             # Adjust order of quaternion elements
             bone['rotation'] = bone['rotation'][3:] + bone['rotation'][:3]
-            bone['scale'] = [self.read_float_be() for x in range(3)]
+            bone['scale'] = [read_float() for x in range(3)]
             self.read(4)
 
     def read_bone_deforms(self):
@@ -514,21 +551,33 @@ class ValkKFMS(ValkFile):
             if bone['deform_ptr'] == 0:
                 # Should set deform_id equal to bone_id?
                 continue
-            self.seek(bone['deform_ptr'])
-            bone['matrix_ptr'] = self.read_long_be()
-            bone['deform_id'] = self.read_long_be()
+            if self.vc_game == 1:
+                self.seek(bone['deform_ptr'])
+                bone['matrix_ptr'] = self.read_long_be()
+                bone['deform_id'] = self.read_long_be()
+            elif self.vc_game == 4:
+                self.seek(bone['deform_ptr'] + 0x20)
+                bone['matrix_ptr'] = self.read_long_le() + 0x20
+                self.read(4) # 64-bit?
+                self.read(2) # unknown
+                bone['deform_id'] = self.read_long_le()
+                self.read(2) # unknown
             self.deform_bones[bone['deform_id']] = bone
 
     def read_bone_matrices(self):
+        if self.vc_game == 1:
+            read_float = self.read_float_be
+        elif self.vc_game == 4:
+            read_float = self.read_float_le
         for bone in self.bones:
             if 'matrix_ptr' not in bone:
                 continue
             self.seek(bone['matrix_ptr'])
             bone['matrix_raw'] = (
-                (self.read_float_be(), self.read_float_be(), self.read_float_be(), self.read_float_be()),
-                (self.read_float_be(), self.read_float_be(), self.read_float_be(), self.read_float_be()),
-                (self.read_float_be(), self.read_float_be(), self.read_float_be(), self.read_float_be()),
-                (self.read_float_be(), self.read_float_be(), self.read_float_be(), self.read_float_be())
+                (read_float(), read_float(), read_float(), read_float()),
+                (read_float(), read_float(), read_float(), read_float()),
+                (read_float(), read_float(), read_float(), read_float()),
+                (read_float(), read_float(), read_float(), read_float())
                 )
 
     def read_material_list(self):
@@ -653,12 +702,12 @@ class ValkKFMS(ValkFile):
     def read_data(self):
         self.read_toc()
         self.read_kfmg_info()
+        self.read_bone_list()
+        self.link_bones()
+        self.read_bone_xforms()
+        self.read_bone_deforms()
+        self.read_bone_matrices()
         if self.vc_game == 1:
-            self.read_bone_list()
-            self.link_bones()
-            self.read_bone_xforms()
-            self.read_bone_deforms()
-            self.read_bone_matrices()
             self.read_material_list()
         self.read_object_list()
         self.read_mesh_list()
