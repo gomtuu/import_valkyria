@@ -504,7 +504,8 @@ class KFMD_Model:
                 vertex_array.append(vertex["location_z"])
             mesh.vertices.foreach_set("co", vertex_array)
             # Create faces
-            mesh.tessfaces.add(len(mesh_dict['faces']))
+            face_count = len(mesh_dict["faces"])
+            mesh.tessfaces.add(face_count)
             face_array = []
             for face in mesh_dict["faces"]:
                 face_array.extend(face)
