@@ -541,8 +541,7 @@ class KFMD_Model:
         self.armature = self.build_armature()
         self.armature.parent = self.empty
         self.build_meshes()
-        if self.kfmg.bytes_per_vertex == 0x30:
-            self.assign_vertex_groups()
+        self.assign_vertex_groups()
 
     def index_vertex_groups(self):
         # TODO: This function and assign_vertex_groups might be a little
@@ -550,6 +549,8 @@ class KFMD_Model:
         for mesh in self.meshes:
             vertex_groups = {}
             for i, vertex in enumerate(mesh["vertices"]):
+                if "vertex_group_1" not in vertex:
+                    break
                 if vertex["vertex_group_1"] not in vertex_groups:
                     vertex_groups[vertex["vertex_group_1"]] = []
                 vertex_groups[vertex["vertex_group_1"]].append([i, vertex["vertex_group_weight_1"]])
@@ -564,8 +565,7 @@ class KFMD_Model:
         self.materials = self.F.materials
         self.meshes = self.F.meshes
         self.textures = self.F.textures
-        if self.kfmg.bytes_per_vertex == 0x30:
-            self.index_vertex_groups()
+        self.index_vertex_groups()
 
     def create_oneside(self):
         self.oneside = bpy.data.textures.new("OneSide", type='BLEND')

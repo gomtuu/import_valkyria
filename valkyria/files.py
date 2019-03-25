@@ -672,8 +672,12 @@ class ValkKFMS(ValkFile):
         for mesh in self.meshes:
             self.seek(mesh['vertex_group_map_ptr'])
             for i in range(mesh['vertex_group_count']):
-                global_id = self.read_word_be()
-                local_id = self.read_word_be()
+                if self.vc_game == 1:
+                    global_id = self.read_word_be()
+                    local_id = self.read_word_be()
+                elif self.vc_game == 4:
+                    global_id = self.read_word_le()
+                    local_id = self.read_word_le()
                 vertex_group_map[local_id] = global_id
             mesh['vertex_group_map'] = vertex_group_map.copy()
 
