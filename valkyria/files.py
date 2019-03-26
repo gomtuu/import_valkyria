@@ -323,11 +323,11 @@ class ValkKFMD(ValkFile):
         kfmg = self.KFMG[0]
         kfms.read_data()
         self.bones = kfms.bones
+        self.materials = kfms.materials
+        self.textures = kfms.textures
         if kfms.vc_game == 1:
             kfmg.face_ptr = 0
             kfmg.vertex_ptr = 0
-            self.materials = kfms.materials
-            self.textures = kfms.textures
         elif kfms.vc_game == 4:
             kfmg.seek(0x30)
             kfmg.face_ptr = kfmg.read_long_le()
@@ -582,19 +582,41 @@ class ValkKFMS(ValkFile):
 
     def read_material_list(self):
         self.materials = {}
+        if self.vc_game == 1:
+            item_length = 0xa0
+        elif self.vc_game == 4:
+            item_length = 0xf0
         for i in range(self.material_count):
-            self.seek(self.material_list_ptr + i * 0xa0)
+            self.seek(self.material_list_ptr + i * item_length)
             material = {}
             material['id'] = i
-            material['ptr'] = self.tell()
-            material['unk1'] = self.read(4)
-            material['flags'] = self.read_long_be()
-            material['use_normal'] = bool(material['flags'] & 0x12) # 0x10 and 0x2 both seem to indicate normal maps
-            material['use_alpha'] = bool(material['flags'] & 0x40)
-            material['use_backface_culling'] = bool(material['flags'] & 0x400)
-            material['unk2'] = self.read(8)
-            material['texture0_ptr'] = self.read_long_be()
-            material['texture1_ptr'] = self.read_long_be()
+            if self.vc_game == 1:
+                material['ptr'] = self.tell()
+                material['unk1'] = self.read(4)
+                material['flags'] = self.read_long_be()
+                material['use_normal'] = bool(material['flags'] & 0x12) # 0x10 and 0x2 both seem to indicate normal maps
+                material['use_alpha'] = bool(material['flags'] & 0x40)
+                material['use_backface_culling'] = bool(material['flags'] & 0x400)
+                material['unk2'] = self.read(8)
+                material['texture0_ptr'] = self.read_long_be()
+                material['texture1_ptr'] = self.read_long_be()
+            elif self.vc_game == 4:
+                material['ptr'] = self.tell()
+                material['flags'] = self.read_long_le()
+                material['use_normal'] = bool(material['flags'] & 0x12) # 0x10 and 0x2 both seem to indicate normal maps
+                material['use_alpha'] = bool(material['flags'] & 0x40)
+                material['use_backface_culling'] = bool(material['flags'] & 0x400)
+                material['texture_count'] = self.read_byte()
+                self.read(3)
+                self.read(0x78)
+                material['texture0_ptr'] = self.read_long_le() + 0x20 if material['texture_count'] > 0 else False
+                self.read(4) # 64-bit?
+                material['texture1_ptr'] = self.read_long_le() + 0x20 if material['texture_count'] > 1 else False
+                self.read(4) # 64-bit?
+                material['texture2_ptr'] = self.read_long_le() + 0x20 if material['texture_count'] > 2 else False
+                self.read(4) # 64-bit?
+                material['texture3_ptr'] = self.read_long_le() + 0x20 if material['texture_count'] > 3 else False
+                self.read(4) # 64-bit?
             self.materials[material['ptr']] = material
 
     def read_object_list(self):
@@ -683,13 +705,19 @@ class ValkKFMS(ValkFile):
 
     def read_texture_list(self):
         self.textures = {}
+        if self.vc_game == 1:
+            item_length = 0x40
+            read_image = self.read_word_be
+        elif self.vc_game == 4:
+            item_length = 0x60
+            read_image = self.read_word_le
         for i in range(self.texture_count):
-            self.seek(self.texture_list_ptr + i * 0x40)
+            self.seek(self.texture_list_ptr + i * item_length)
             texture = {}
             texture['id'] = i
             texture['ptr'] = self.tell()
             self.read(4)
-            texture['image'] = self.read_word_be()
+            texture['image'] = read_image()
             self.textures[texture['ptr']] = texture
 
     def link_materials(self):
@@ -702,6 +730,15 @@ class ValkKFMS(ValkFile):
                 material['texture1'] = self.textures[material['texture1_ptr']]
             else:
                 material['texture1'] = None
+            if self.vc_game == 4:
+                if material['texture2_ptr']:
+                    material['texture2'] = self.textures[material['texture2_ptr']]
+                else:
+                    material['texture2'] = None
+                if material['texture3_ptr']:
+                    material['texture3'] = self.textures[material['texture3_ptr']]
+                else:
+                    material['texture3'] = None
 
     def read_data(self):
         self.read_toc()
@@ -711,14 +748,12 @@ class ValkKFMS(ValkFile):
         self.read_bone_xforms()
         self.read_bone_deforms()
         self.read_bone_matrices()
-        if self.vc_game == 1:
-            self.read_material_list()
+        self.read_material_list()
         self.read_object_list()
         self.read_mesh_list()
         self.read_vertex_group_maps()
-        if self.vc_game == 1:
-            self.read_texture_list()
-            self.link_materials()
+        self.read_texture_list()
+        self.link_materials()
 
 
 class ValkKFMG(ValkFile):

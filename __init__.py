@@ -647,6 +647,8 @@ class KFMD_Model:
                     material.texture_slots[slot_i].uv_layer = uvname
                     image = material.texture_slots[slot_i].texture.image
                     for i, face in enumerate(mesh["faces"]):
+                        if u[slot_i] not in mesh["vertices"][face[0]]:
+                            break
                         mesh["bpy"].data.polygons[i].use_smooth = 1
                         uv_layer.data[i*3 + 0].uv = (mesh["vertices"][face[0]][u[slot_i]], mesh["vertices"][face[0]][v[slot_i]] + 1)
                         uv_layer.data[i*3 + 1].uv = (mesh["vertices"][face[1]][u[slot_i]], mesh["vertices"][face[1]][v[slot_i]] + 1)
