@@ -724,6 +724,7 @@ class ValkyriaScene:
                                 space.show_backface_culling = True
         self.scene.layers = self.layer_list(0)
         self.scene.game_settings.material_mode = 'GLSL'
+        self.scene.display_settings.display_device = 'sRGB'
 
     def create_lamp(self):
         lamp_data = bpy.data.lamps.new("Default Lamp", 'HEMI')
