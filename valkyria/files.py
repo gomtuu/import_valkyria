@@ -602,12 +602,14 @@ class ValkKFMS(ValkFile):
                 material['texture1_ptr'] = self.read_long_be()
             elif self.vc_game == 4:
                 material['ptr'] = self.tell()
-                material['flags'] = self.read_long_le()
-                material['use_normal'] = bool(material['flags'] & 0x12) # 0x10 and 0x2 both seem to indicate normal maps
-                material['use_alpha'] = bool(material['flags'] & 0x40)
-                material['use_backface_culling'] = bool(material['flags'] & 0x400)
+                material['flags1'] = self.read_long_le()
+                transparency1 = material['flags1'] in [0x05, 0x21]
                 material['texture_count'] = self.read_byte()
-                self.read(3)
+                material['flags2'] = self.read_word_be()
+                transparency2 = material['flags2'] == 0x0201
+                material['use_transparency'] = transparency1 or transparency2
+                material['flags3'] = self.read_byte()
+                material['use_backface_culling'] = material['flags3'] == 1
                 self.read(0x78)
                 material['texture0_ptr'] = self.read_long_le() + 0x20 if material['texture_count'] > 0 else False
                 self.read(4) # 64-bit?

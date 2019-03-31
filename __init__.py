@@ -579,6 +579,62 @@ class KFMD_Model:
         element1.color = (1.0, 1.0, 1.0, 1.0)
 
     def build_materials(self, texture_pack):
+        if self.kfms.vc_game == 1:
+            self.build_materials_old(texture_pack)
+        elif self.kfms.vc_game == 4:
+            self.build_materials_new(texture_pack)
+
+    def build_materials_new(self, texture_pack):
+        for ptr, texture_dict in self.textures.items():
+            name = "Texture-{:04x}".format(ptr)
+            texture_dict["bpy"] = bpy.data.textures.new(name, type = 'IMAGE')
+            texture_dict["bpy"].image = texture_pack[texture_dict["image"]].image
+            texture_dict["bpy"].use_alpha = True
+        for ptr, material_dict in self.materials.items():
+            name = "Material-{:04x}".format(ptr)
+            material_dict["bpy"] = material = bpy.data.materials.new(name)
+            #material.game_settings.use_backface_culling = material_dict["use_backface_culling"]
+            material.diffuse_intensity = 1.0
+            material.specular_intensity = 0.0
+            if material_dict["texture0_ptr"]:
+                slot0 = material.texture_slots.add()
+                slot0.texture_coords = 'UV'
+                slot0.texture = material_dict["texture0"]["bpy"]
+                slot0.use_map_alpha = True
+                slot0.alpha_factor = 1.0
+            if material_dict["use_transparency"]:
+                material.use_transparency = True
+                material.transparency_method = 'Z_TRANSPARENCY'
+                material.alpha = 0.0
+            if material_dict["texture1_ptr"]:
+                slot1 = material.texture_slots.add()
+                slot1.texture_coords = 'UV'
+                slot1.texture = material_dict["texture1"]["bpy"]
+            if material_dict["texture2_ptr"]:
+                slot2 = material.texture_slots.add()
+                slot2.texture_coords = 'UV'
+                slot2.texture = material_dict["texture2"]["bpy"]
+            if material_dict["texture3_ptr"]:
+                slot2 = material.texture_slots.add()
+                slot2.texture_coords = 'UV'
+                slot2.texture = material_dict["texture3"]["bpy"]
+                # This texture slot is (almost?) always used to add shading
+                # to a character's eyeball. The texture needs to be multiplied
+                # instead of mixed for the shading to look right.
+                slot2.blend_type = 'MULTIPLY'
+            if material_dict["use_backface_culling"]:
+                material.use_nodes = True
+                material.use_transparency = True
+                nodes = material.node_tree.nodes
+                nodes['Material'].material = material
+                geom = nodes.new('ShaderNodeGeometry')
+                math = nodes.new('ShaderNodeMath')
+                math.operation = 'MULTIPLY'
+                material.node_tree.links.new(nodes['Material'].outputs['Alpha'], math.inputs[0])
+                material.node_tree.links.new(geom.outputs['Front/Back'], math.inputs[1])
+                material.node_tree.links.new(math.outputs['Value'], nodes['Output'].inputs['Alpha'])
+
+    def build_materials_old(self, texture_pack):
         for ptr, texture_dict in self.textures.items():
             # TODO: Consider doing this another way.
             name = "Texture-{:04x}".format(ptr)
