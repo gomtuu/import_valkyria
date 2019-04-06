@@ -160,6 +160,7 @@ class IZCA_Model:
             model.build_blender()
             model.assign_materials(texture_pack.htsf_images)
         for shape_key_set in self.shape_key_sets:
+            # TODO: Is there a smarter way to determine which models use shape keys?
             self.hmdl_models[1].build_shape_keys(shape_key_set)
 
     def finalize_blender(self):
@@ -433,8 +434,8 @@ class HMDL_Model:
             model.assign_materials()
 
     def build_shape_keys(self, shape_key_set):
-        for model in self.kfmd_models:
-            model.build_shape_keys(shape_key_set)
+        # TODO: Is there a smarter way to determine which models use shape keys?
+        self.kfmd_models[0].build_shape_keys(shape_key_set)
 
     def finalize_blender(self):
         for model in self.kfmd_models:
