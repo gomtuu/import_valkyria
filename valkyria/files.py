@@ -255,24 +255,16 @@ class ValkKFSH(ValkFile):
         kfss = self.KFSS[0]
         kfsg = self.KFSG[0]
         kfss.read_data()
-        self.shape_keys = kfss.shape_keys
-        if kfss.vc_game == 1:
-            kfsg.vertex_type = kfss.vertex_type
-        elif kfss.vc_game == 4:
-            kfsg.bytes_per_vertex = kfss.bytes_per_vertex
-            kfsg.skip_keep_list = kfss.skip_keep_list
-            kfsg.keep = False
-            kfsg.skip_keep_left = kfsg.skip_keep_list.pop(0)
         kfsg.vc_game = kfss.vc_game
+        self.shape_keys = kfss.shape_keys
+        kfsg.vertex_formats = kfss.vertex_formats
+        kfsg.read_data()
         for shape_key in self.shape_keys:
-            if kfss.vc_game == 1:
-                shape_key["vertices"] = kfsg.read_vertices(
-                    shape_key["kfmg_ptr"],
-                    shape_key["vertex_count"])
-            elif kfss.vc_game == 4:
-                shape_key["vertices"] = kfsg.read_vertices(
-                    shape_key["vertex_offset"] * kfss.bytes_per_vertex,
-                    shape_key["vertex_count"])
+            vertfmt = kfsg.vertex_formats[shape_key['vertex_format']]
+            slice_start = shape_key['vertex_offset']
+            slice_end = slice_start + shape_key['vertex_count']
+            shape_key['vertices'] = vertfmt['vertices'][slice_start:slice_end]
+            shape_key['vc_game'] = kfsg.vc_game
 
 
 class ValkKFSS(ValkFile):
@@ -289,31 +281,52 @@ class ValkKFSS(ValkFile):
             self.seek(self.header_length + 0x10)
             self.key_count = self.read_long_be()
             self.key_list_ptr = self.read_long_be()
-            self.seek(self.header_length + 0x24)
-            self.moreinfo_ptr = self.read_long_be()
+            self.seek(self.header_length + 0x20)
+            self.vertex_format_count = self.read_long_be()
+            self.vertex_format_ptr = self.read_long_be()
         elif self.vc_game == 4:
-            self.seek(self.header_length + 0x14)
+            self.seek(self.header_length + 0x10)
             self.group_count = self.read_long_le() # Don't know what these are for yet
             self.key_count = self.read_long_le()
+            self.read(4)
+            self.vertex_format_count = self.read_long_le()
             self.seek(self.header_length + 0x30)
             self.group_list_ptr = self.read_long_le() + 0x20
             self.read(4) # 64-bit?
             self.key_list_ptr = self.read_long_le() + 0x20
             self.seek(self.header_length + 0x48)
-            self.moreinfo_ptr = self.read_long_le() + 0x20
+            self.vertex_format_ptr = self.read_long_le() + 0x20
 
-    def read_moreinfo(self):
+    def read_vertex_formats(self):
         if self.vc_game == 1:
-            self.seek(self.moreinfo_ptr)
-            self.vertex_type = self.read_long_le()
-            assert self.vertex_type in (0, 2, 3)
+            self.seek(self.vertex_format_ptr + 0x8)
+            vertfmt = {
+                'kfsg_ptr': 0,
+                'bytes_per_vertex': self.read_long_be(),
+                'unk': self.read(0x8),
+                'vertex_count': self.read_long_be(),
+            }
+            del(vertfmt['unk'])
+            assert vertfmt['bytes_per_vertex'] in [0x0, 0xc, 0x14]
+            self.vertex_formats = [vertfmt]
         elif self.vc_game == 4:
-            self.seek(self.moreinfo_ptr + 0xc)
-            self.skip_count = self.read_long_le()
-            self.skip_ptr = self.read_long_le() + 0x20
-            self.seek(self.moreinfo_ptr + 0x24)
-            self.bytes_per_vertex = self.read_long_le()
-            assert self.bytes_per_vertex in [0xc, 0x18, 0x1c]
+            item_length = 0x80
+            self.vertex_formats = []
+            for i in range(self.vertex_format_count):
+                item_start = self.vertex_format_ptr + item_length * i
+                self.seek(item_start)
+                vertfmt = {
+                    'kfmg_ptr': self.read_long_le() + 0x20,
+                    'kfsg_ptr': self.read_long_le(),
+                    'vertex_count': self.read_long_le(),
+                    'skip_count': self.read_long_le(),
+                    'skip_ptr': self.read_long_le() + 0x20,
+                    'unk': self.read(0x10),
+                    'bytes_per_vertex': self.read_long_le(),
+                }
+                del(vertfmt['unk'])
+                assert vertfmt['bytes_per_vertex'] in [0x0, 0xc, 0x18, 0x1c]
+                self.vertex_formats.append(vertfmt)
 
     def read_key_list(self):
         if self.vc_game == 1:
@@ -323,75 +336,78 @@ class ValkKFSS(ValkFile):
         self.shape_keys = []
         for i in range(self.key_count):
             self.seek(self.key_list_ptr + i * item_length)
-            self.read(6)
             if self.vc_game == 1:
+                self.read(6)
                 shape_key = {
                     #'hmdl_number?': self.read_word_be(), # Always 1
+                    'vertex_format': 0,
                     'vertex_count': self.read_word_be(),
-                    'moreinfo_ptr': self.read_long_be(),
-                    'kfmg_ptr': self.read_long_be(),
                     }
+                t3ptr = self.read_long_be()
+                self.seek(t3ptr)
+                shape_key['vertex_offset'] = self.read_long_be()
             elif self.vc_game == 4:
-                self.read(0xa)
+                self.read(2)
+                vertex_format = self.read_word_le()
+                self.read(0xc)
                 t3ptr = self.read_word_le() + 0x20
                 self.seek(t3ptr)
                 shape_key = {
+                    'vertex_format': vertex_format,
                     'vertex_offset': self.read_long_le(),
                     'vertex_count': self.read_long_le(),
                     }
             self.shape_keys.append(shape_key)
 
-    def read_skip_list(self):
-        self.seek(self.skip_ptr)
-        self.skip_keep_list = []
-        for i in range(self.skip_count):
-            skip = self.read_long_le()
-            keep = self.read_long_le()
-            self.skip_keep_list.append(skip)
-            self.skip_keep_list.append(keep)
+    def read_skip_lists(self):
+        if self.vc_game == 1:
+            for vertfmt in self.vertex_formats:
+                vertfmt['skip_keep_list'] = [(0, vertfmt['vertex_count'])]
+        elif self.vc_game == 4:
+            for vertfmt in self.vertex_formats:
+                self.seek(vertfmt['skip_ptr'])
+                vertfmt['skip_keep_list'] = []
+                for i in range(vertfmt['skip_count']):
+                    skip = self.read_long_le()
+                    keep = self.read_long_le()
+                    vertfmt['skip_keep_list'].append((skip, keep))
 
     def read_data(self):
         self.read_toc()
-        self.read_moreinfo()
+        self.read_vertex_formats()
         self.read_key_list()
-        if self.vc_game == 4:
-            self.read_skip_list()
+        self.read_skip_lists()
 
 
 class ValkKFSG(ValkFile):
     # Doesn't contain other files.
     # Holds shape key data
-    def read_vertices(self, kfmg_ptr, count):
+    def read_data(self):
         if self.vc_game == 1:
             read_float = self.read_float_be
         elif self.vc_game == 4:
             read_float = self.read_float_le
-        vertices = []
-        self.seek(self.header_length + kfmg_ptr)
-        for i in range(count):
-            while self.vc_game == 4 and self.skip_keep_left <= 0 and len(self.skip_keep_list) > 0:
-                self.keep = not self.keep
-                self.skip_keep_left = self.skip_keep_list.pop(0)
-            if self.vc_game == 4 and self.keep == 0:
-                vertex = {
-                    "translate_x": 0.0,
-                    "translate_y": 0.0,
-                    "translate_z": 0.0,
-                    }
-            else:
-                vertex = {
-                    "translate_x": read_float(),
-                    "translate_y": read_float(),
-                    "translate_z": read_float(),
-                    }
-            if self.vc_game == 1 and self.vertex_type == 3:
-                self.read(8) # Probably UV?
-            if self.vc_game == 4:
-                self.skip_keep_left -= 1
-                if self.bytes_per_vertex > 0xc:
-                    self.read(self.bytes_per_vertex - 0xc)
-            vertices.append(vertex)
-        return vertices
+        for vertfmt in self.vertex_formats:
+            vertices = []
+            self.seek(self.header_length + vertfmt['kfsg_ptr'])
+            for skip, keep in vertfmt['skip_keep_list']:
+                for i in range(skip):
+                    vertex = {
+                        "translate_x": 0.0,
+                        "translate_y": 0.0,
+                        "translate_z": 0.0,
+                        }
+                    vertices.append(vertex)
+                for i in range(keep):
+                    vertex = {
+                        "translate_x": read_float(),
+                        "translate_y": read_float(),
+                        "translate_z": read_float(),
+                        }
+                    if vertfmt['bytes_per_vertex'] > 0xc:
+                        self.read(vertfmt['bytes_per_vertex'] - 0xc)
+                    vertices.append(vertex)
+            vertfmt['vertices'] = vertices
 
 
 class ValkKFMD(ValkFile):

@@ -715,7 +715,10 @@ class KFMD_Model:
     def build_shape_keys(self, shape_key_set):
         scene = bpy.context.scene
         for mesh, shape_key in zip(self.meshes, shape_key_set.shape_keys):
-            vertex_shift = len(mesh["bpy"].data.vertices) - len(shape_key["vertices"])
+            if shape_key['vc_game'] == 1:
+                vertex_shift = len(mesh["bpy"].data.vertices) - len(shape_key["vertices"])
+            elif shape_key['vc_game'] == 4:
+                vertex_shift = 0
             if "bpy_dup_base" not in mesh:
                 bpy.ops.object.select_all(action='DESELECT')
                 scene.objects.active = mesh["bpy"]
