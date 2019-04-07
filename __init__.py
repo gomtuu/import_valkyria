@@ -716,8 +716,12 @@ class KFMD_Model:
         scene = bpy.context.scene
         for mesh, shape_key in zip(self.meshes, shape_key_set.shape_keys):
             if shape_key['vc_game'] == 1:
-                vertex_shift = len(mesh["bpy"].data.vertices) - len(shape_key["vertices"])
+                shape_vertices = shape_key["vertices"]
+                vertex_shift = len(mesh["bpy"].data.vertices) - len(shape_vertices)
             elif shape_key['vc_game'] == 4:
+                slice_start = mesh["first_vertex"]
+                slice_end = slice_start + mesh["vertex_count"]
+                shape_vertices = shape_key["vertices"][slice_start:slice_end]
                 vertex_shift = 0
             if "bpy_dup_base" not in mesh:
                 bpy.ops.object.select_all(action='DESELECT')
@@ -731,7 +735,7 @@ class KFMD_Model:
             bpy.ops.object.duplicate()
             temp_object = scene.objects.active
             temp_object.name = "HSHP-{:02d}".format(shape_key_set.shape_key_set_id)
-            for i, vertex in enumerate(shape_key["vertices"]):
+            for i, vertex in enumerate(shape_vertices):
                 j = i + vertex_shift
                 old = temp_object.data.vertices[j].co
                 new = [old[0] + vertex["translate_x"],

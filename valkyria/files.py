@@ -263,7 +263,10 @@ class ValkKFSH(ValkFile):
             vertfmt = kfsg.vertex_formats[shape_key['vertex_format']]
             slice_start = shape_key['vertex_offset']
             slice_end = slice_start + shape_key['vertex_count']
-            shape_key['vertices'] = vertfmt['vertices'][slice_start:slice_end]
+            if kfss.vc_game == 1:
+                shape_key['vertices'] = vertfmt['vertices'][slice_start:slice_end]
+            else:
+                shape_key['vertices'] = vertfmt['vertices']
             shape_key['vc_game'] = kfsg.vc_game
 
 
