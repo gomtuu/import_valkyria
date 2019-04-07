@@ -81,13 +81,39 @@ class HTSF_Image:
         tmp_dds.write(self.dds.data)
         tmp_dds.close()
 
+    def convert_dds_to_png(self, dds_path):
+        from bpy_extras.image_utils import load_image
+        import platform
+        import pathlib
+        import subprocess
+        png_path = dds_path[0:-4] + '.png'
+        home = pathlib.Path.home()
+        current_os = platform.system()
+        if current_os == 'Linux':
+            converter = home / 'Compressonator' / 'CompressonatorCLI'
+            command = ['sh', str(converter), '-fs', 'BC7', dds_path, png_path]
+        if current_os == 'Darwin':
+            converter = home / 'Compressonator' / 'CompressonatorCLI.sh'
+            command = ['sh', str(converter), '-fs', 'BC7', dds_path, png_path]
+        if current_os == 'Windows':
+            converter = home / 'texconv' / 'texconv.exe'
+            command = [str(converter), '-ft', 'png', dds_path]
+        subprocess.run(command)
+        self.image = load_image(png_path)
+        self.image.pack()
+        os.remove(png_path)
+
     def build_blender(self):
         from bpy_extras.image_utils import load_image
         tempdir = bpy.app.tempdir
         dds_path = os.path.join(tempdir, self.filename)
         self.write_tmp_dds(dds_path)
         self.image = load_image(dds_path)
+        supported = self.image.size[0] > 0 or self.image.size[1] > 0
         self.image.pack()
+        if not supported:
+            # DDS file is probably BC7, which Blender doesn't support yet.
+            self.convert_dds_to_png(dds_path)
         os.remove(dds_path)
 
     def read_data(self):
