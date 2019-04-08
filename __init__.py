@@ -686,9 +686,9 @@ class KFMD_Model:
     def finalize_blender(self):
         for mesh in self.meshes:
             mesh["bpy"].data.update()
-            for i, mesh_vertex in enumerate(mesh["bpy"].data.vertices):
-                dict_vertex = mesh["vertices"][i]
-                mesh_vertex.normal = [dict_vertex["normal_x"], dict_vertex["normal_y"], dict_vertex["normal_z"]]
+            mesh["bpy"].data.use_auto_smooth = True
+            normals = [(dict_vertex["normal_x"], dict_vertex["normal_y"], dict_vertex["normal_z"]) for dict_vertex in mesh["vertices"]]
+            mesh["bpy"].data.normals_split_custom_set_from_vertices(normals)
             if "bpy_dup_base" in mesh:
                 bpy.ops.object.select_all(action='DESELECT')
                 mesh["bpy_dup_base"].select = True

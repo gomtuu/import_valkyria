@@ -1,6 +1,6 @@
 # import_valkyria: A Blender Add-on for Valkyria Chronicles models
 
-`import_valkyria` is a Blender 2.63+ add-on for importing MLX, HMD, ABR,
+`import_valkyria` is a Blender 2.74+ add-on for importing MLX, HMD, ABR,
 and MXE models from Valkyria Chronicles. The model files used by the
 PlayStation 3 and PC versions of Valkyria Chronicles are the same, so both
 versions are supported.
@@ -37,12 +37,6 @@ script, which you can download here:
 http://forum.xentax.com/viewtopic.php?p=76717#p76717
 
 ## Known Issues
-
-Blender 2.66 and 2.66a have a bug that causes some textures to be blank in the
-viewport and in game mode, but not when rendering. Use 2.65a or 2.67+ instead.
-
-Blender frequenty recalculates normal vectors, so there's not really a way to
-use the normal vectors specified in the game.
 
 Bones are a little bit weird because this was the best way I could think of to
 get bones to correspond to the right vertex groups. Also, armature
