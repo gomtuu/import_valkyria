@@ -289,6 +289,7 @@ class MXEN_Model:
     def open_file(self, filename):
         path = os.path.dirname(self.F.filename)
         possible_files = []
+        possible_files.append(os.path.join(path, filename))
         possible_files.append(os.path.join(path, filename.lower()))
         possible_files.append(os.path.join(path, filename.upper()))
         possible_files.append(os.path.join(path, '..', 'resource', 'mx', filename.lower()))
