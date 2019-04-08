@@ -19,6 +19,14 @@ bl_info = {
         }
 
 
+def make_transform_matrix(loc,rot,scale):
+    mat_loc = mathutils.Matrix.Translation(loc)
+    mat_rot = mathutils.Quaternion(rot).to_matrix().to_4x4()
+    mat_scale = mathutils.Matrix()
+    mat_scale[0][0], mat_scale[1][1], mat_scale[2][2] = scale[0], scale[1], scale[2]
+    return mat_loc * mat_rot * mat_scale
+
+
 class Texture_Pack:
     def __init__(self):
         self.htsf_images = []
@@ -454,18 +462,19 @@ class KFMD_Model:
                 bone['name'] = "Bone-{:02x}".format(bone['deform_id'])
             else:
                 bone['name'] = "Bone-{:02x}".format(bone['id'])
+            bone["matrix"] = make_transform_matrix(bone["location"], bone["rotation"], bone["scale"])
             if bone["parent"]:
-                bone["accum_rotation"] = bone["parent"]["accum_rotation"]
-                bone["head"] = bone["parent"]["head"] + bone["accum_rotation"] * mathutils.Vector(bone["location"])
-                bone["accum_rotation"] *= mathutils.Quaternion(bone["rotation"])
+                bone["accum_matrix"] = bone["parent"]["accum_matrix"]
+                bone["head"] = bone["accum_matrix"] * mathutils.Vector(bone["location"])
+                bone["accum_matrix"] = bone["accum_matrix"] * bone["matrix"]
             else:
-                bone["accum_rotation"] = mathutils.Quaternion(bone["rotation"])
+                bone["accum_matrix"] = bone["matrix"]
                 bone["head"] = mathutils.Vector(bone["location"])
         for bone in self.bones:
             if bone["fav_child"]:
                 bone["tail"] = bone["fav_child"]["head"]
             else:
-                bone["tail"] = bone["head"] + bone["accum_rotation"] * mathutils.Vector((0.5, 0, 0))
+                bone["tail"] = bone["accum_matrix"] * mathutils.Vector((0.5, 0, 0))
             if bone["object_ptr1"] and bone["parent"]:
                 bone["tail"] = bone["head"]
                 bone["head"] = bone["parent"]["head"]
@@ -502,16 +511,14 @@ class KFMD_Model:
             mesh.update()
             # Move accessories to proper places
             parent_bone_id = mesh_dict["object"]["parent_bone_id"]
-            if parent_bone_id:
+            if parent_bone_id >= 0:
                 parent_bone = self.bones[parent_bone_id]
                 if parent_bone["name"] in self.armature.data.bones:
-                    bone_quat = self.armature.data.bones[parent_bone["name"]].matrix_local.to_quaternion()
-                    mesh_quat = mesh_dict["bpy"].matrix_world.to_quaternion()
-                    axis_correction = bone_quat.rotation_difference(mesh_quat)
-                    mesh_dict["bpy"].rotation_mode = 'QUATERNION'
-                    mesh_dict["bpy"].rotation_quaternion = axis_correction * parent_bone["accum_rotation"]
+                    bone = self.armature.data.bones[parent_bone["name"]]
+                    bone_matrix = bone.matrix_local * mathutils.Matrix.Translation((0,bone.length,0))
                     mesh_dict["bpy"].parent_type = 'BONE'
                     mesh_dict["bpy"].parent_bone = parent_bone["name"]
+                    mesh_dict["bpy"].matrix_parent_inverse = bone_matrix.inverted() * parent_bone["accum_matrix"]
             else:
                 mesh_dict["bpy"].parent_type = 'ARMATURE'
 
