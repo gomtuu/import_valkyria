@@ -698,7 +698,8 @@ class KFMD_Model:
 class ValkyriaScene:
     def __init__(self, source_file, name):
         self.source_file = source_file
-        self.name = name
+        self.name = os.path.basename(name)
+        self.filename = name
         self.layers_used = 0
 
     def layer_list(self, layer_num):
@@ -738,12 +739,29 @@ class ValkyriaScene:
 
     def read_data(self):
         self.source_file.read_data()
+        if isinstance(self.source_file, HMDL_Model):
+            possible_files = []
+            possible_files.append(self.filename[0:-4] + '.htx')
+            possible_files.append(self.filename[0:-4] + '.HTX')
+            htex = None
+            for possible_file in possible_files:
+                try:
+                    htex = valkyria.files.valk_open(possible_file)[0]
+                except FileNotFoundError:
+                    continue
+            if htex is not None:
+                htex.find_inner_files()
+                self.hmdl_htex_pack = HTEX_Pack(htex, 0)
+                self.hmdl_htex_pack.read_data()
 
     def build_blender(self):
         self.create_scene(self.name)
         self.create_lamp()
         self.source_file.build_blender()
         self.source_file.finalize_blender()
+        if isinstance(self.source_file, HMDL_Model) and hasattr(self, 'hmdl_htex_pack'):
+            self.hmdl_htex_pack.build_blender()
+            self.source_file.assign_materials(self.hmdl_htex_pack.htsf_images)
 
     def pose_blender(self, pose_filename):
         poses = IZCA_Poses(valkyria.files.valk_open(pose_filename)[0])
@@ -772,8 +790,7 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
             model = ABRS_Model(vfile)
         elif vfile.ftype == 'MXEN':
             model = MXEN_Model(vfile)
-        scene_name = os.path.basename(filename)
-        self.valk_scene = ValkyriaScene(model, scene_name)
+        self.valk_scene = ValkyriaScene(model, filename)
         try:
             self.valk_scene.read_data()
         except FileNotFoundError as e:

@@ -48,6 +48,7 @@ to release a new version anyway.
 
 ## Changelog
 
+* When opening .HMD files, look for textures in .HTX file of the same name.
 * Set default colorspace to sRGB to fix dark textures.
 * Merged [#2](https://github.com/gomtuu/import_valkyria/pull/2) from [angavrilov](https://github.com/angavrilov).
   * Fix bad object positioning in environment maps and some characters.
