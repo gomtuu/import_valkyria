@@ -97,7 +97,9 @@ class HTSF_Image:
             command = ['sh', str(converter), '-fs', 'BC7', dds_path, png_path]
         if current_os == 'Windows':
             converter = home / 'texconv' / 'texconv.exe'
-            command = [str(converter), '-ft', 'png', dds_path]
+            dds_folder = pathlib.Path(dds_path).parent
+            command = [str(converter), '-ft', 'png', '-o', str(dds_folder), dds_path]
+            png_path = dds_path[0:-4] + '.PNG'
         subprocess.run(command)
         self.image = load_image(png_path)
         self.image.pack()
