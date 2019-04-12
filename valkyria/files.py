@@ -93,6 +93,10 @@ class ValkFile:
         packed = struct.pack('I', int32)
         return struct.unpack('f', packed)[0]
 
+    def read_long_long_le(self):
+        # https://youtu.be/sZsJyCyGBSI
+        return self.read_and_unpack(8, '<Q')
+
     def read_string(self, encoding="ascii"):
         array = []
         byte = self.read(1)
@@ -1078,21 +1082,39 @@ class ValkHTER(ValkFile):
         self.seek(self.header_length + 4)
         self.texture_pack_count = self.read_long_be()
         self.texture_pack_list_ptr = self.read_long_be()
+        if self.texture_pack_count < 2**16:
+            self.vc_game = 1
+        else:
+            self.vc_game = 4
+            self.seek(self.header_length + 0x4)
+            self.texture_pack_count = self.read_long_le()
+            self.seek(self.header_length + 0x20)
+            self.texture_pack_list_ptr = self.read_long_le() + 0x20
 
     def read_texture_pack_list(self):
         self.seek(self.texture_pack_list_ptr)
         for i in range(self.texture_pack_count):
-            pack = {
-                "id_count": self.read_long_be(),
-                "id_list_ptr": self.read_long_be(),
-                }
-            self.read(8)
+            if self.vc_game == 1:
+                pack = {
+                    "id_count": self.read_long_be(),
+                    "id_list_ptr": self.read_long_be(),
+                    }
+                self.read(8)
+            elif self.vc_game == 4:
+                pack = {
+                    "id_count": self.read_long_le(),
+                    "unk": self.read(4),
+                    "id_list_ptr": self.read_long_long_le() + 0x20,
+                    }
             self.texture_packs.append(pack)
         for pack in self.texture_packs:
             self.seek(pack["id_list_ptr"])
             pack["htsf_ids"] = []
             for i in range(pack["id_count"]):
-                htsf_id = self.read_long_be()
+                if self.vc_game == 1:
+                    htsf_id = self.read_long_be()
+                elif self.vc_game == 4:
+                    htsf_id = self.read_long_le()
                 pack["htsf_ids"].append(htsf_id)
 
     def read_data(self):
@@ -1411,6 +1433,7 @@ class ValkMXEC(ValkFile):
             "SlgEnLift",
             "SlgEnLorry",
             "SlgEnMarmot1st",
+            "SlgEnObject",
             "SlgEnProduceBorder",
             "SlgEnPropeller",
             "SlgEnReplaceModel",
@@ -1426,27 +1449,54 @@ class ValkMXEC(ValkFile):
     def __init__(self, F, offset=None):
         self.PRINT_FILES = False
         self.PRINT_PARAMS = False
+        self.PRINT_MODELS = False
         self.PRINT_MODEL_PARAMS = False
         self.PRINT_MODEL_FILES = False
         super().__init__(F, offset)
 
     def read_toc(self):
-        self.seek(self.header_length + 0x4)
-        self.param_block_ptr = self.read_long_be()
-        self.model_block_ptr = self.read_long_be()
-        self.file_block_ptr = self.read_long_be()
-        if self.param_block_ptr:
-            self.seek(self.param_block_ptr + 0x4)
-            self.param_count = self.read_long_be()
-            self.param_list_ptr = self.read_long_be()
-        if self.model_block_ptr:
-            self.seek(self.model_block_ptr + 0x4)
-            self.model_count = self.read_long_be()
-            self.model_list_ptr = self.read_long_be()
-        if self.file_block_ptr:
-            self.seek(self.file_block_ptr + 0x4)
-            self.file_count = self.read_long_be()
-            self.file_list_ptr = self.read_long_be()
+        self.seek(self.header_length)
+        version = self.read(4)
+        if version[1] == 0:
+            self.vc_game = 1
+        elif version[2] == 0:
+            self.vc_game = 4
+        if self.vc_game == 1:
+            self.param_block_ptr = self.read_long_be()
+            self.model_block_ptr = self.read_long_be()
+            self.file_block_ptr = self.read_long_be()
+            if self.param_block_ptr:
+                self.seek(self.param_block_ptr + 0x4)
+                self.param_count = self.read_long_be()
+                self.param_list_ptr = self.read_long_be()
+            if self.model_block_ptr:
+                self.seek(self.model_block_ptr + 0x4)
+                self.model_count = self.read_long_be()
+                self.model_list_ptr = self.read_long_be()
+            if self.file_block_ptr:
+                self.seek(self.file_block_ptr + 0x4)
+                self.file_count = self.read_long_be()
+                self.file_list_ptr = self.read_long_be()
+        elif self.vc_game == 4:
+            self.seek(self.header_length + 0x20)
+            self.param_block_ptr = self.read_long_long_le() + 0x20
+            self.model_block_ptr = self.read_long_long_le() + 0x20
+            self.file_block_ptr = self.read_long_long_le() + 0x20
+            if self.param_block_ptr > 0x20:
+                self.seek(self.param_block_ptr + 0x8)
+                self.param_count = self.read_long_le()
+                self.seek(self.param_block_ptr + 0x20)
+                self.param_list_ptr = self.read_long_long_le() + 0x20
+            if self.model_block_ptr > 0x20:
+                self.seek(self.model_block_ptr + 0x4)
+                self.model_count = self.read_long_le()
+                self.seek(self.model_block_ptr + 0x20)
+                self.model_list_ptr = self.read_long_long_le() + 0x20
+            if self.file_block_ptr > 0x20:
+                self.seek(self.file_block_ptr + 0x4)
+                self.file_count = self.read_long_le()
+                self.seek(self.file_block_ptr + 0x20)
+                self.file_list_ptr = self.read_long_long_le() + 0x20
 
     def read_parameter_list(self):
         from subprocess import check_output
@@ -1455,19 +1505,30 @@ class ValkMXEC(ValkFile):
         self.seek(self.param_list_ptr)
         rows = []
         for i in range(self.param_count):
-            row = {
-                "id": self.read_long_be(),
-                "name_ptr": self.read_long_be(),
-                "data_length": self.read_long_be(),
-                "data_ptr": self.read_long_be(),
-                }
+            if self.vc_game == 1:
+                row = {
+                    "id": self.read_long_be(),
+                    "name_ptr": self.read_long_be(),
+                    "data_length": self.read_long_be(),
+                    "data_ptr": self.read_long_be(),
+                    }
+            elif self.vc_game == 4:
+                row = {
+                    "id": self.read_long_le(),
+                    "data_length": self.read_long_le(),
+                    "name_ptr": self.read_long_long_le() + 0x20,
+                    "data_ptr": self.read_long_long_le() + 0x20,
+                    }
+                self.read(8)
             rows.append(row)
         for row in rows:
             self.seek(row["name_ptr"])
             row["name"] = self.read_string(encoding = "shift_jis_2004")
             if self.PRINT_PARAMS:
-                print(row)
+                print('Param:', row)
                 print(check_output(["xxd", "-s", str(row["data_ptr"] + self.offset), "-l", str(row["data_length"]), self.F.filename]).decode("ascii"))
+        if self.PRINT_PARAMS:
+            print('Done Reading Parameters')
         self.parameters = rows
 
     def read_model_list(self):
@@ -1476,17 +1537,31 @@ class ValkMXEC(ValkFile):
         self.seek(self.model_list_ptr)
         rows = []
         for i in range(self.model_count):
-            row = {
-                "unk1": self.read_long_be(),
-                "name_ptr": self.read_long_be(),
-                "param_count": self.read_long_be(),
-                "param_list_ptr": self.read_long_be(),
-                }
-            self.seek(0x30, True) # Always zero?
+            if self.vc_game == 1:
+                row = {
+                    "unk1": self.read_long_be(),
+                    "name_ptr": self.read_long_be(),
+                    "param_count": self.read_long_be(),
+                    "param_list_ptr": self.read_long_be(),
+                    }
+                self.seek(0x30, True) # Always zero?
+            elif self.vc_game == 4:
+                row = {
+                    "unk1": self.read_long_le(),
+                    "param_count": self.read_long_le(),
+                    "unk2": self.read(0x10),
+                    "name_ptr": self.read_long_long_le() + 0x20,
+                    "param_list_ptr": self.read_long_long_le() + 0x20,
+                    }
+                self.seek(0x28, True) # Always zero?
             rows.append(row)
         for row in rows:
             self.seek(row["name_ptr"])
             row["name"] = self.read_string(encoding = "shift_jis_2004")
+            if self.PRINT_MODELS:
+                print('Model:', row)
+        if self.PRINT_MODELS:
+            print('Done Reading Models')
         self.models = rows
 
     def read_file_list(self):
@@ -1495,17 +1570,30 @@ class ValkMXEC(ValkFile):
         self.seek(self.file_list_ptr)
         file_rows = []
         for i in range(self.file_count):
-            row = {
-                "is_inside": self.read_long_be(),
-                "id": self.read_long_be(),
-                "path_ptr": self.read_long_be(),
-                "filename_ptr": self.read_long_be(),
-                "type": self.read_long_be(),
-                "htr_index": self.read_long_be(),
-                "unk1": self.read(0xc),
-                "mmr_index": self.read_long_be(),
-                "unk2": self.read(0x18),
-                }
+            if self.vc_game == 1:
+                row = {
+                    "is_inside": self.read_long_be(),
+                    "id": self.read_long_be(),
+                    "path_ptr": self.read_long_be(),
+                    "filename_ptr": self.read_long_be(),
+                    "type": self.read_long_be(),
+                    "htr_index": self.read_long_be(),
+                    "unk1": self.read(0xc),
+                    "mmr_index": self.read_long_be(),
+                    "unk2": self.read(0x18),
+                    }
+            elif self.vc_game == 4:
+                row = {
+                    "is_inside": self.read_long_le(),
+                    "id": self.read_long_le(),
+                    "type": self.read_long_le(),
+                    "htr_index": self.read_long_le(),
+                    "unk1": self.read_long_le(),
+                    "mmr_index": self.read_long_le(),
+                    "path_ptr": self.read_long_long_le() + 0x20,
+                    "filename_ptr": self.read_long_long_le() + 0x20,
+                    "unk2": self.read(0x18),
+                    }
             # 0 = Not inside another file
             # 0x100 = Is inside merge.htx, indexed by merge.htr
             # 0x200 = Is inside mmf, indexed by mmr
@@ -1523,7 +1611,8 @@ class ValkMXEC(ValkFile):
             # 0x16 = htr
             # 0x18 = mmf
             # 0x19 = mmr
-            assert row["type"] in [0x1, 0x2, 0x3, 0x6, 0x8, 0x9, 0xa, 0xc, 0x14, 0x15, 0x16, 0x18, 0x19]
+            if self.vc_game == 1:
+                assert row["type"] in [0x1, 0x2, 0x3, 0x6, 0x8, 0x9, 0xa, 0xc, 0x14, 0x15, 0x16, 0x18, 0x19]
             assert row["unk2"] == b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
             del row["unk2"]
             file_rows.append(row)
@@ -1537,7 +1626,9 @@ class ValkMXEC(ValkFile):
             self.seek(row["filename_ptr"])
             row["filename"] = self.read_string()
             if self.PRINT_FILES:
-                print(row)
+                print('File:', row)
+        if self.PRINT_FILES:
+            print('Done Reading Files')
         self.files = file_rows
 
     def read_model_param_ids(self):
@@ -1546,11 +1637,17 @@ class ValkMXEC(ValkFile):
             self.seek(model["param_list_ptr"])
             param_refs = []
             for i in range(model["param_count"]):
-                param_text_ptr = self.read_long_be()
-                param_id_count = self.read_long_be()
-                param_id_ptr = self.read_long_be()
+                if self.vc_game == 1:
+                    param_text_ptr = self.read_long_be()
+                    param_id_count = self.read_long_be()
+                    param_id_ptr = self.read_long_be()
+                    self.read(4)
+                elif self.vc_game == 4:
+                    param_id_count = self.read_long_le()
+                    self.read(4)
+                    param_text_ptr = self.read_long_long_le() + 0x20
+                    param_id_ptr = self.read_long_long_le() + 0x20
                 param_refs.append([param_text_ptr, param_id_count, param_id_ptr])
-                self.read(4)
             param_groups = []
             for param_text_ptr, param_id_count, param_id_ptr in param_refs:
                 param_group = {}
@@ -1559,15 +1656,20 @@ class ValkMXEC(ValkFile):
                 param_group["param_ids"] = []
                 self.seek(param_id_ptr)
                 if self.PRINT_MODEL_PARAMS:
-                    print(param_group["text"])
+                    print('Model Param Group:', param_group["text"])
                 for i in range(param_id_count):
-                    param_id = self.read_long_be()
+                    if self.vc_game == 1:
+                        param_id = self.read_long_be()
+                    elif self.vc_game == 4:
+                        param_id = self.read_long_le()
                     if self.PRINT_MODEL_PARAMS:
-                        print(self.parameters[param_id])
+                        print('Model Param:', self.parameters[param_id])
                         print(check_output(["xxd", "-s", str(self.parameters[param_id]["data_ptr"] + self.offset), "-l", str(self.parameters[param_id]["data_length"]), self.F.filename]).decode("ascii"))
                     param_group["param_ids"].append(param_id)
                 param_groups.append(param_group)
             model["param_groups"] = param_groups
+        if self.PRINT_MODEL_PARAMS:
+            print('Done Reading Model Parameters')
 
     def read_model_files(self):
         # (common)
@@ -1614,22 +1716,43 @@ class ValkMXEC(ValkFile):
                     assert len(group["param_ids"]) == 1
                     param_id = group["param_ids"][0]
                     param = self.parameters[param_id]
-                    self.seek(param["data_ptr"] + 0x40)
-                    model["location_x"] = self.read_float_be()
-                    model["location_y"] = self.read_float_be()
-                    model["location_z"] = self.read_float_be()
-                    self.seek(param["data_ptr"] + 0x50)
-                    model["rotation_x"] = self.read_float_be()
-                    model["rotation_y"] = self.read_float_be()
-                    model["rotation_z"] = self.read_float_be()
-                    self.seek(param["data_ptr"] + 0x60)
-                    model["scale_x"] = self.read_float_be()
-                    model["scale_y"] = self.read_float_be()
-                    model["scale_z"] = self.read_float_be()
-                    self.seek(param["data_ptr"] + 0x74)
-                    model["model_file_id"] = self.read_long_be()
-                    self.seek(param["data_ptr"] + 0x84)
-                    model["texture_file_id"] = self.read_long_be()
+                    if self.vc_game == 1:
+                        self.seek(param["data_ptr"] + 0x40)
+                        model["location_x"] = self.read_float_be()
+                        model["location_y"] = self.read_float_be()
+                        model["location_z"] = self.read_float_be()
+                        self.seek(param["data_ptr"] + 0x50)
+                        model["rotation_x"] = self.read_float_be()
+                        model["rotation_y"] = self.read_float_be()
+                        model["rotation_z"] = self.read_float_be()
+                        self.seek(param["data_ptr"] + 0x60)
+                        model["scale_x"] = self.read_float_be()
+                        model["scale_y"] = self.read_float_be()
+                        model["scale_z"] = self.read_float_be()
+                        self.seek(param["data_ptr"] + 0x74)
+                        model["model_file_id"] = self.read_long_be()
+                        self.seek(param["data_ptr"] + 0x84)
+                        model["texture_file_id"] = self.read_long_be()
+                    elif self.vc_game == 4:
+                        if group["text"] in ["SlgEnObject", "EnHeightField", "EnSky"]:
+                            self.seek(param["data_ptr"] + 0x10)
+                            model["location_x"] = self.read_float_le()
+                            model["location_y"] = self.read_float_le()
+                            model["location_z"] = self.read_float_le()
+                            self.seek(param["data_ptr"] + 0x20)
+                            model["rotation_x"] = self.read_float_le()
+                            model["rotation_y"] = self.read_float_le()
+                            model["rotation_z"] = self.read_float_le()
+                            self.seek(param["data_ptr"] + 0x30)
+                            model["scale_x"] = self.read_float_le()
+                            model["scale_y"] = self.read_float_le()
+                            model["scale_z"] = self.read_float_le()
+                            self.seek(param["data_ptr"] + 0x40)
+                            model["model_file_id"] = self.read_long_le()
+                            self.seek(param["data_ptr"] + 0x48)
+                            model["texture_file_id"] = self.read_long_le()
+                        else:
+                            print(group["text"])
                     if model["model_file_id"] != 0xffffffff and model["texture_file_id"] != 0xffffffff:
                         model["model_file"] = self.files[model["model_file_id"]]
                         model["texture_file"] = self.files[model["texture_file_id"]]
@@ -1708,6 +1831,13 @@ class ValkMXMH(ValkFile):
         self.seek(self.header_length)
         path_ptr = self.read_long_be()
         filename_ptr = self.read_long_be()
+        if 0x10 <= path_ptr < filename_ptr < self.main_length:
+            self.vc_game = 1
+        else:
+            self.vc_game = 4
+            self.seek(self.header_length)
+            path_ptr = self.read_long_le()
+            filename_ptr = self.read_long_le()
         assert 0x10 <= path_ptr < filename_ptr < self.main_length
         self.seek(self.header_length + filename_ptr)
         self.filename = self.read_string()
