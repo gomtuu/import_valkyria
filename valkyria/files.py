@@ -1123,7 +1123,6 @@ class ValkHTER(ValkFile):
         self.read_texture_pack_list()
 
 
-
 class ValkNAIS(ValkFile):
     # Relatively small files that contain lists of things. Related to AI?
     pass
@@ -2171,6 +2170,105 @@ class Valk4SDPK(ValkFile):
     pass
 
 
+class Valk4ATUD(ValkFile):
+    # Unknown block found in Valkyria Chornicles 4
+    pass
+
+
+class Valk4NSEN(ValkFile):
+    # Unknown block found in Valkyria Chornicles 4
+    # Seems to refer to models?
+    # Has different internal structure from most blocks.
+
+    def container_func(self):
+        pass
+
+    def read_meta(self):
+        self.seek(0)
+        self.ftype = self.read(4).decode('ascii')
+        if DEBUG:
+            print("Creating", self.ftype)
+        import os
+        self.seek(0, os.SEEK_END)
+        self.total_length = self.tell()
+        self.header_length = 0
+
+
+class Valk4REXP(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    # Contains BSON blocks
+    pass
+
+
+class Valk4HSPK(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    # Contains KSPK and KSPP blocks
+    pass
+
+
+class Valk4KSPK(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    # Something to do with shaders
+    pass
+
+
+class Valk4KSPP(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    # Something to do with shaders
+    pass
+
+
+class Valk4ATOM(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    # Contains ACBC blocks
+    # Music?
+    pass
+
+
+class Valk4ACBC(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    # Music?
+    pass
+
+
+class Valk4CDRL(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    # Something to do with fonts?
+    pass
+
+
+class Valk4XLSB(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    # Contains CHNK blocks
+    # Has different internal structure from most blocks.
+
+    def container_func(self):
+        pass
+
+    def read_meta(self):
+        self.seek(0)
+        self.ftype = self.read(4).decode('ascii')
+        if DEBUG:
+            print("Creating", self.ftype)
+        import os
+        self.seek(0, os.SEEK_END)
+        self.total_length = self.tell()
+        self.header_length = 0
+
+
+class Valk4CRBP(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    # Contains CRBD blocks
+    # Body parts?
+    pass
+
+
+class Valk4SACC(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    # Contains SACC, SAC, and VSTD blocks
+    pass
+
+
 file_types = {
     'IZCA': ValkIZCA,
     'MLX0': ValkMLX0,
@@ -2266,6 +2364,18 @@ file_types = {
     'MBHD': Valk4MBHD,
     'MBMD': Valk4MBMD,
     'SDPK': Valk4SDPK,
+    'ATUD': Valk4ATUD,
+    'NSEN': Valk4NSEN,
+    'REXP': Valk4REXP,
+    'HSPK': Valk4HSPK,
+    'KSPK': Valk4KSPK,
+    'KSPP': Valk4KSPP,
+    'ATOM': Valk4ATOM,
+    'ACBC': Valk4ACBC,
+    'CDRL': Valk4CDRL,
+    'XLSB': Valk4XLSB,
+    'CRBP': Valk4CRBP,
+    'SACC': Valk4SACC,
     }
 
 def valk_factory(F, offset=0, parent=None):
