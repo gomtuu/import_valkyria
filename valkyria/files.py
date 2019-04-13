@@ -1733,7 +1733,7 @@ class ValkMXEC(ValkFile):
                         self.seek(param["data_ptr"] + 0x84)
                         model["texture_file_id"] = self.read_long_be()
                     elif self.vc_game == 4:
-                        if group["text"] in ["SlgEnObject", "EnHeightField", "EnSky"]:
+                        if group["text"] in ["SlgEnObject", "EnHeightField", "EnSky"] + self.model_types:
                             self.seek(param["data_ptr"] + 0x10)
                             model["location_x"] = self.read_float_le()
                             model["location_y"] = self.read_float_le()
