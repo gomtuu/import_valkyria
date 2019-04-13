@@ -2136,47 +2136,47 @@ class Valk2MIG(ValkFile):
 
 
 class Valk4POF1(ValkFile):
-    # Unknown block found in Valkyria Chornicles 4 models
+    # Unknown block found in Valkyria Chronicles 4 models
     pass
 
 
 class Valk4WIRS(ValkFile):
-    # Unknown block found in Valkyria Chornicles 4 models
+    # Unknown block found in Valkyria Chronicles 4 models
     pass
 
 
 class Valk4MBHV(ValkFile):
-    # Unknown block found in Valkyria Chornicles 4
+    # Unknown block found in Valkyria Chronicles 4
     pass
 
 
 class Valk4MBMP(ValkFile):
-    # Unknown block found in Valkyria Chornicles 4
+    # Unknown block found in Valkyria Chronicles 4
     pass
 
 
 class Valk4MBHD(ValkFile):
-    # Unknown block found in Valkyria Chornicles 4
+    # Unknown block found in Valkyria Chronicles 4
     pass
 
 
 class Valk4MBMD(ValkFile):
-    # Unknown block found in Valkyria Chornicles 4
+    # Unknown block found in Valkyria Chronicles 4
     pass
 
 
 class Valk4SDPK(ValkFile):
-    # Unknown block found in Valkyria Chornicles 4
+    # Unknown block found in Valkyria Chronicles 4
     pass
 
 
 class Valk4ATUD(ValkFile):
-    # Unknown block found in Valkyria Chornicles 4
+    # Unknown block found in Valkyria Chronicles 4
     pass
 
 
 class Valk4NSEN(ValkFile):
-    # Unknown block found in Valkyria Chornicles 4
+    # Unknown block found in Valkyria Chronicles 4
     # Seems to refer to models?
     # Has different internal structure from most blocks.
 
