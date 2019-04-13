@@ -1356,7 +1356,7 @@ class ValkMXMH(ValkFile):
         self.seek(self.header_length)
         path_ptr = self.read_long_be()
         filename_ptr = self.read_long_be()
-        assert filename_ptr == 0x2f
+        assert 0x10 <= path_ptr < filename_ptr < self.main_length
         self.seek(self.header_length + filename_ptr)
         self.filename = self.read_string()
 
