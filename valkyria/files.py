@@ -298,8 +298,7 @@ class ValkKFSS(ValkFile):
             self.read(4)
             self.vertex_format_count = self.read_long_le()
             self.seek(self.header_length + 0x30)
-            self.group_list_ptr = self.read_long_le() + 0x20
-            self.read(4) # 64-bit?
+            self.group_list_ptr = self.read_long_long_le() + 0x20
             self.key_list_ptr = self.read_long_le() + 0x20
             self.seek(self.header_length + 0x48)
             self.vertex_format_ptr = self.read_long_le() + 0x20
@@ -485,24 +484,15 @@ class ValkKFMS(ValkFile):
             self.vertex_formats = []
             self.read(4)
             self.read(16)
-            self.bone_list_ptr = self.read_long_le() + 0x20
-            self.read(4) # is this a 64-bit pointer?
-            self.read_long_le() # pointer to extra per-bone data
-            self.read(4) # is this a 64-bit pointer?
-            self.bone_xform_list_ptr = self.read_long_le() + 0x20
-            self.read(4) # is this a 64-bit pointer?
-            self.material_list_ptr = self.read_long_le() + 0x20
-            self.read(4) # is this a 64-bit pointer?
-            self.object_list_ptr = self.read_long_le() + 0x20
-            self.read(4) # is this a 64-bit pointer?
-            self.mesh_list_ptr = self.read_long_le() + 0x20
-            self.read(4) # is this a 64-bit pointer?
-            self.read(4) # unknown pointer?
-            self.read(4) # is this a 64-bit pointer?
-            self.texture_list_ptr = self.read_long_le() + 0x20
-            self.read(4) # is this a 64-bit pointer?
-            self.mesh_info_ptr = self.read_long_le() + 0x20
-            self.read(4) # is this a 64-bit pointer?
+            self.bone_list_ptr = self.read_long_long_le() + 0x20
+            self.read_long_long_le() # pointer to extra per-bone data
+            self.bone_xform_list_ptr = self.read_long_long_le() + 0x20
+            self.material_list_ptr = self.read_long_long_le() + 0x20
+            self.object_list_ptr = self.read_long_long_le() + 0x20
+            self.mesh_list_ptr = self.read_long_long_le() + 0x20
+            self.read(8) # unknown pointer?
+            self.texture_list_ptr = self.read_long_long_le() + 0x20
+            self.mesh_info_ptr = self.read_long_long_le() + 0x20
         else:
             self.bone_count = self.read_long_be()
             self.deform_count = self.read_long_be()
@@ -591,31 +581,22 @@ class ValkKFMS(ValkFile):
                 bone['parent_id'] = self.read_word_le()
                 bone['dim1'] = self.read_float_le()
                 bone['dim2'] = self.read_float_le()
-                bone['parent_ptr'] = self.read_long_le() + 0x20
-                self.read(4) # 64-bit?
-                bone['fav_child_ptr'] = self.read_long_le() + 0x20
-                self.read(4) # 64-bit?
-                bone['unk_bone_ptr2'] = self.read_long_le()
-                self.read(4) # 64-bit?
-                bone['bound_box_ptr'] = self.read_long_le()
-                self.read(4) # 64-bit?
+                bone['parent_ptr'] = self.read_long_long_le() + 0x20
+                bone['fav_child_ptr'] = self.read_long_long_le() + 0x20
+                bone['unk_bone_ptr2'] = self.read_long_long_le() + 0x20
+                bone['bound_box_ptr'] = self.read_long_long_le() + 0x20
                 self.read(4) # 0x20202020
                 self.read(2)
                 bone['object_count'] = self.read_word_le()
                 self.read(4)
                 bone['deform_count'] = self.read_word_le() # First bone only
                 bone['is_deform'] = self.read_word_le()
-                bone['object_ptr1'] = self.read_long_le()
-                self.read(4) # 64-bit?
-                bone['object_ptr2'] = self.read_long_le()
-                self.read(4) # 64-bit?
-                bone['object_ptr3'] = self.read_long_le()
-                self.read(4) # 64-bit?
+                bone['object_ptr1'] = self.read_long_long_le()
+                bone['object_ptr2'] = self.read_long_long_le()
+                bone['object_ptr3'] = self.read_long_long_le()
                 self.read(8)
-                bone['deform_ids_ptr'] = self.read_long_le() # First bone only
-                self.read(4) # 64-bit?
-                bone['deform_ptr'] = self.read_long_le()
-                self.read(4) # 64-bit?
+                bone['deform_ids_ptr'] = self.read_long_long_le() # First bone only
+                bone['deform_ptr'] = self.read_long_long_le()
                 self.read(48)
             self.bones.append(bone)
 
@@ -659,8 +640,7 @@ class ValkKFMS(ValkFile):
                 bone['deform_id'] = self.read_long_be()
             elif self.vc_game == 4:
                 self.seek(bone['deform_ptr'] + 0x20)
-                bone['matrix_ptr'] = self.read_long_le() + 0x20
-                self.read(4) # 64-bit?
+                bone['matrix_ptr'] = self.read_long_long_le() + 0x20
                 self.read(2) # unknown
                 bone['deform_id'] = self.read_long_le()
                 self.read(2) # unknown
@@ -713,14 +693,10 @@ class ValkKFMS(ValkFile):
                 material['flags3'] = self.read_byte()
                 material['use_backface_culling'] = material['flags3'] == 1
                 self.read(0x78)
-                material['texture0_ptr'] = self.read_long_le() + 0x20 if material['texture_count'] > 0 else False
-                self.read(4) # 64-bit?
-                material['texture1_ptr'] = self.read_long_le() + 0x20 if material['texture_count'] > 1 else False
-                self.read(4) # 64-bit?
-                material['texture2_ptr'] = self.read_long_le() + 0x20 if material['texture_count'] > 2 else False
-                self.read(4) # 64-bit?
-                material['texture3_ptr'] = self.read_long_le() + 0x20 if material['texture_count'] > 3 else False
-                self.read(4) # 64-bit?
+                material['texture0_ptr'] = self.read_long_long_le() + 0x20 if material['texture_count'] > 0 else False
+                material['texture1_ptr'] = self.read_long_long_le() + 0x20 if material['texture_count'] > 1 else False
+                material['texture2_ptr'] = self.read_long_long_le() + 0x20 if material['texture_count'] > 2 else False
+                material['texture3_ptr'] = self.read_long_long_le() + 0x20 if material['texture_count'] > 3 else False
             self.materials[material['ptr']] = material
 
     def read_object_list(self):
@@ -744,14 +720,14 @@ class ValkKFMS(ValkFile):
                     'id': self.read_long_le(),
                     'u01': self.read_word_le(), # Has vertex groups?
                     'parent_bone_id': self.read_word_le(),
-                    'material_ptr': self.read_long_le() + 0x20,
+                    'material_ptr': self.read_long_le() + 0x20, # 64-bit?
                     'u02': self.read_long_le(),
                     'kfmg_vertex_offset': self.read_long_le() + 0x20,
                     'vertex_count': self.read_word_le(),
                     'vertex_format': self.read_word_le(),
                     'mesh_count': self.read_long_le(),
                     'u03': self.read_long_le(),
-                    'mesh_list_ptr': self.read_long_le() + 0x20,
+                    'mesh_list_ptr': self.read_long_le() + 0x20, # 64-bit?
                     'u04': self.read(4 * 7),
                     }
             self.objects.append(object_row)
@@ -787,7 +763,7 @@ class ValkKFMS(ValkFile):
                         'first_vertex': self.read_long_le(),
                         'faces_first_word': self.read_long_le(),
                         'first_vertex_id': self.read_long_le(),
-                        'vertex_group_map_ptr': self.read_long_le() + 0x20,
+                        'vertex_group_map_ptr': self.read_long_le() + 0x20, # 64-bit?
                         'n02': self.read_long_le(),
                         'object': obj,
                         }
