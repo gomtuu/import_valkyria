@@ -48,6 +48,11 @@ to release a new version anyway.
 
 ## Changelog
 
+* Merged [#2](https://github.com/gomtuu/import_valkyria/pull/2) from [angavrilov](https://github.com/angavrilov).
+  * Fix bad object positioning in environment maps and some characters.
+  * Support opening DLC files in the PC version.
+  * Use the custom normal layer introduced in 2.74 to save game normals.
+
 ### 2018-09-16: Version 0.7
 
 * Added support for the Steam version's directory structure.
