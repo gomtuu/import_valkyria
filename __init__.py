@@ -12,7 +12,7 @@ bl_info = {
         "description": "Imports model files from Valkyria Chronicles (PS3)",
         "author": "Chrrox, Gomtuu",
         "version": (0, 7),
-        "blender": (2, 63, 0),
+        "blender": (2, 74, 0),
         "location": "File > Import",
         "warning": "",
         "category": "Import-Export",
