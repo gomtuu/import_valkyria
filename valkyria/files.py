@@ -22,6 +22,11 @@ class ValkFile:
             return self.F.seek(pos, relative) - self.offset
         return self.F.seek(self.offset + pos) - self.offset
 
+    def follow_ptr(self, pointer):
+        if hasattr(self, 'vc_game') and self.vc_game == 4:
+            pointer += self.header_length
+        return self.seek(pointer)
+
     def tell(self):
         return self.F.tell() - self.offset
 
@@ -298,14 +303,14 @@ class ValkKFSS(ValkFile):
             self.read(4)
             self.vertex_format_count = self.read_long_le()
             self.seek(self.header_length + 0x30)
-            self.group_list_ptr = self.read_long_long_le() + 0x20
-            self.key_list_ptr = self.read_long_le() + 0x20
+            self.group_list_ptr = self.read_long_long_le()
+            self.key_list_ptr = self.read_long_le()
             self.seek(self.header_length + 0x48)
-            self.vertex_format_ptr = self.read_long_le() + 0x20
+            self.vertex_format_ptr = self.read_long_le()
 
     def read_vertex_formats(self):
         if self.vc_game == 1:
-            self.seek(self.vertex_format_ptr + 0x8)
+            self.follow_ptr(self.vertex_format_ptr + 0x8)
             vertfmt = {
                 'kfsg_ptr': 0,
                 'bytes_per_vertex': self.read_long_be(),
@@ -320,13 +325,13 @@ class ValkKFSS(ValkFile):
             self.vertex_formats = []
             for i in range(self.vertex_format_count):
                 item_start = self.vertex_format_ptr + item_length * i
-                self.seek(item_start)
+                self.follow_ptr(item_start)
                 vertfmt = {
-                    'kfmg_ptr': self.read_long_le() + 0x20,
+                    'kfmg_ptr': self.read_long_le(),
                     'kfsg_ptr': self.read_long_le(),
                     'vertex_count': self.read_long_le(),
                     'skip_count': self.read_long_le(),
-                    'skip_ptr': self.read_long_le() + 0x20,
+                    'skip_ptr': self.read_long_le(),
                     'unk': self.read(0x10),
                     'bytes_per_vertex': self.read_long_le(),
                 }
@@ -341,7 +346,7 @@ class ValkKFSS(ValkFile):
             item_length = 0x20
         self.shape_keys = []
         for i in range(self.key_count):
-            self.seek(self.key_list_ptr + i * item_length)
+            self.follow_ptr(self.key_list_ptr + i * item_length)
             if self.vc_game == 1:
                 self.read(6)
                 shape_key = {
@@ -350,14 +355,14 @@ class ValkKFSS(ValkFile):
                     'vertex_count': self.read_word_be(),
                     }
                 t3ptr = self.read_long_be()
-                self.seek(t3ptr)
+                self.follow_ptr(t3ptr)
                 shape_key['vertex_offset'] = self.read_long_be()
             elif self.vc_game == 4:
                 self.read(2)
                 vertex_format = self.read_word_le()
                 self.read(0xc)
-                t3ptr = self.read_word_le() + 0x20
-                self.seek(t3ptr)
+                t3ptr = self.read_word_le()
+                self.follow_ptr(t3ptr)
                 shape_key = {
                     'vertex_format': vertex_format,
                     'vertex_offset': self.read_long_le(),
@@ -371,7 +376,7 @@ class ValkKFSS(ValkFile):
                 vertfmt['skip_keep_list'] = [(0, vertfmt['vertex_count'])]
         elif self.vc_game == 4:
             for vertfmt in self.vertex_formats:
-                self.seek(vertfmt['skip_ptr'])
+                self.follow_ptr(vertfmt['skip_ptr'])
                 vertfmt['skip_keep_list'] = []
                 for i in range(vertfmt['skip_count']):
                     skip = self.read_long_le()
@@ -484,15 +489,15 @@ class ValkKFMS(ValkFile):
             self.vertex_formats = []
             self.read(4)
             self.read(16)
-            self.bone_list_ptr = self.read_long_long_le() + 0x20
+            self.bone_list_ptr = self.read_long_long_le()
             self.read_long_long_le() # pointer to extra per-bone data
-            self.bone_xform_list_ptr = self.read_long_long_le() + 0x20
-            self.material_list_ptr = self.read_long_long_le() + 0x20
-            self.object_list_ptr = self.read_long_long_le() + 0x20
-            self.mesh_list_ptr = self.read_long_long_le() + 0x20
+            self.bone_xform_list_ptr = self.read_long_long_le()
+            self.material_list_ptr = self.read_long_long_le()
+            self.object_list_ptr = self.read_long_long_le()
+            self.mesh_list_ptr = self.read_long_long_le()
             self.read(8) # unknown pointer?
-            self.texture_list_ptr = self.read_long_long_le() + 0x20
-            self.mesh_info_ptr = self.read_long_long_le() + 0x20
+            self.texture_list_ptr = self.read_long_long_le()
+            self.mesh_info_ptr = self.read_long_long_le()
         else:
             self.bone_count = self.read_long_be()
             self.deform_count = self.read_long_be()
@@ -524,10 +529,10 @@ class ValkKFMS(ValkFile):
             self.mesh_info_ptr = self.read_long_be()
 
     def read_kfmg_info(self):
-        self.seek(self.mesh_info_ptr)
+        self.follow_ptr(self.mesh_info_ptr)
         if self.vc_game == 4:
             for i in range(self.vertex_format_count):
-                self.seek(self.mesh_info_ptr + 0x80 * i)
+                self.follow_ptr(self.mesh_info_ptr + 0x80 * i)
                 self.read(4)
                 self.vertex_formats.append({
                     'bytes_per_vertex': self.read_long_le(),
@@ -549,12 +554,12 @@ class ValkKFMS(ValkFile):
             self.read(4)
 
     def read_bone_list(self):
-        self.seek(self.bone_list_ptr)
+        self.follow_ptr(self.bone_list_ptr)
         self.bones = []
         for i in range(self.bone_count):
             bone = {}
-            bone['ptr'] = self.tell()
             if self.vc_game == 1:
+                bone['ptr'] = self.tell()
                 self.read(4)
                 bone['id'] = self.read_word_be()
                 bone['parent_id'] = self.read_word_be()
@@ -576,15 +581,16 @@ class ValkKFMS(ValkFile):
                 bone['deform_ptr'] = self.read_long_be()
                 self.read(32)
             elif self.vc_game == 4:
+                bone['ptr'] = self.tell() - 0x20
                 self.read(4)
                 bone['id'] = self.read_word_le()
                 bone['parent_id'] = self.read_word_le()
                 bone['dim1'] = self.read_float_le()
                 bone['dim2'] = self.read_float_le()
-                bone['parent_ptr'] = self.read_long_long_le() + 0x20
-                bone['fav_child_ptr'] = self.read_long_long_le() + 0x20
-                bone['unk_bone_ptr2'] = self.read_long_long_le() + 0x20
-                bone['bound_box_ptr'] = self.read_long_long_le() + 0x20
+                bone['parent_ptr'] = self.read_long_long_le()
+                bone['fav_child_ptr'] = self.read_long_long_le()
+                bone['unk_bone_ptr2'] = self.read_long_long_le()
+                bone['bound_box_ptr'] = self.read_long_long_le()
                 self.read(4) # 0x20202020
                 self.read(2)
                 bone['object_count'] = self.read_word_le()
@@ -614,7 +620,7 @@ class ValkKFMS(ValkFile):
                 parent_bone['fav_child'] = bone
 
     def read_bone_xforms(self):
-        self.seek(self.bone_xform_list_ptr)
+        self.follow_ptr(self.bone_xform_list_ptr)
         if self.vc_game == 1:
             read_float = self.read_float_be
         elif self.vc_game == 4:
@@ -634,13 +640,12 @@ class ValkKFMS(ValkFile):
             if bone['deform_ptr'] == 0:
                 # Should set deform_id equal to bone_id?
                 continue
+            self.follow_ptr(bone['deform_ptr'])
             if self.vc_game == 1:
-                self.seek(bone['deform_ptr'])
                 bone['matrix_ptr'] = self.read_long_be()
                 bone['deform_id'] = self.read_long_be()
             elif self.vc_game == 4:
-                self.seek(bone['deform_ptr'] + 0x20)
-                bone['matrix_ptr'] = self.read_long_long_le() + 0x20
+                bone['matrix_ptr'] = self.read_long_long_le()
                 self.read(2) # unknown
                 bone['deform_id'] = self.read_long_le()
                 self.read(2) # unknown
@@ -654,7 +659,7 @@ class ValkKFMS(ValkFile):
         for bone in self.bones:
             if 'matrix_ptr' not in bone:
                 continue
-            self.seek(bone['matrix_ptr'])
+            self.follow_ptr(bone['matrix_ptr'])
             bone['matrix_raw'] = (
                 (read_float(), read_float(), read_float(), read_float()),
                 (read_float(), read_float(), read_float(), read_float()),
@@ -669,7 +674,7 @@ class ValkKFMS(ValkFile):
         elif self.vc_game == 4:
             item_length = 0xf0
         for i in range(self.material_count):
-            self.seek(self.material_list_ptr + i * item_length)
+            self.follow_ptr(self.material_list_ptr + i * item_length)
             material = {}
             material['id'] = i
             if self.vc_game == 1:
@@ -683,7 +688,7 @@ class ValkKFMS(ValkFile):
                 material['texture0_ptr'] = self.read_long_be()
                 material['texture1_ptr'] = self.read_long_be()
             elif self.vc_game == 4:
-                material['ptr'] = self.tell()
+                material['ptr'] = self.tell() - 0x20
                 material['flags1'] = self.read_long_le()
                 transparency1 = material['flags1'] in [0x05, 0x21]
                 material['texture_count'] = self.read_byte()
@@ -693,14 +698,14 @@ class ValkKFMS(ValkFile):
                 material['flags3'] = self.read_byte()
                 material['use_backface_culling'] = material['flags3'] == 1
                 self.read(0x78)
-                material['texture0_ptr'] = self.read_long_long_le() + 0x20 if material['texture_count'] > 0 else False
-                material['texture1_ptr'] = self.read_long_long_le() + 0x20 if material['texture_count'] > 1 else False
-                material['texture2_ptr'] = self.read_long_long_le() + 0x20 if material['texture_count'] > 2 else False
-                material['texture3_ptr'] = self.read_long_long_le() + 0x20 if material['texture_count'] > 3 else False
+                material['texture0_ptr'] = self.read_long_long_le()
+                material['texture1_ptr'] = self.read_long_long_le()
+                material['texture2_ptr'] = self.read_long_long_le()
+                material['texture3_ptr'] = self.read_long_long_le()
             self.materials[material['ptr']] = material
 
     def read_object_list(self):
-        self.seek(self.object_list_ptr)
+        self.follow_ptr(self.object_list_ptr)
         self.objects = []
         for i in range(self.object_count):
             if self.vc_game == 1:
@@ -720,14 +725,14 @@ class ValkKFMS(ValkFile):
                     'id': self.read_long_le(),
                     'u01': self.read_word_le(), # Has vertex groups?
                     'parent_bone_id': self.read_word_le(),
-                    'material_ptr': self.read_long_le() + 0x20, # 64-bit?
+                    'material_ptr': self.read_long_le(), # 64-bit?
                     'u02': self.read_long_le(),
-                    'kfmg_vertex_offset': self.read_long_le() + 0x20,
+                    'kfmg_vertex_offset': self.read_long_le(),
                     'vertex_count': self.read_word_le(),
                     'vertex_format': self.read_word_le(),
                     'mesh_count': self.read_long_le(),
                     'u03': self.read_long_le(),
-                    'mesh_list_ptr': self.read_long_le() + 0x20, # 64-bit?
+                    'mesh_list_ptr': self.read_long_le(), # 64-bit?
                     'u04': self.read(4 * 7),
                     }
             self.objects.append(object_row)
@@ -735,7 +740,7 @@ class ValkKFMS(ValkFile):
     def read_mesh_list(self):
         self.meshes = []
         for obj in self.objects:
-            self.seek(obj['mesh_list_ptr'])
+            self.follow_ptr(obj['mesh_list_ptr'])
             for i in range(obj['mesh_count']):
                 if self.vc_game == 1:
                     mesh_row = {
@@ -763,7 +768,7 @@ class ValkKFMS(ValkFile):
                         'first_vertex': self.read_long_le(),
                         'faces_first_word': self.read_long_le(),
                         'first_vertex_id': self.read_long_le(),
-                        'vertex_group_map_ptr': self.read_long_le() + 0x20, # 64-bit?
+                        'vertex_group_map_ptr': self.read_long_le(), # 64-bit?
                         'n02': self.read_long_le(),
                         'object': obj,
                         }
@@ -772,7 +777,7 @@ class ValkKFMS(ValkFile):
     def read_vertex_group_maps(self):
         vertex_group_map = {}
         for mesh in self.meshes:
-            self.seek(mesh['vertex_group_map_ptr'])
+            self.follow_ptr(mesh['vertex_group_map_ptr'])
             for i in range(mesh['vertex_group_count']):
                 if self.vc_game == 1:
                     global_id = self.read_word_be()
@@ -792,10 +797,13 @@ class ValkKFMS(ValkFile):
             item_length = 0x60
             read_image = self.read_word_le
         for i in range(self.texture_count):
-            self.seek(self.texture_list_ptr + i * item_length)
+            self.follow_ptr(self.texture_list_ptr + i * item_length)
             texture = {}
             texture['id'] = i
-            texture['ptr'] = self.tell()
+            if self.vc_game == 1:
+                texture['ptr'] = self.tell()
+            elif self.vc_game == 4:
+                texture['ptr'] = self.tell() - 0x20
             self.read(4)
             texture['image'] = read_image()
             self.textures[texture['ptr']] = texture
@@ -1065,10 +1073,10 @@ class ValkHTER(ValkFile):
             self.seek(self.header_length + 0x4)
             self.texture_pack_count = self.read_long_le()
             self.seek(self.header_length + 0x20)
-            self.texture_pack_list_ptr = self.read_long_le() + 0x20
+            self.texture_pack_list_ptr = self.read_long_le()
 
     def read_texture_pack_list(self):
-        self.seek(self.texture_pack_list_ptr)
+        self.follow_ptr(self.texture_pack_list_ptr)
         for i in range(self.texture_pack_count):
             if self.vc_game == 1:
                 pack = {
@@ -1080,11 +1088,11 @@ class ValkHTER(ValkFile):
                 pack = {
                     "id_count": self.read_long_le(),
                     "unk": self.read(4),
-                    "id_list_ptr": self.read_long_long_le() + 0x20,
+                    "id_list_ptr": self.read_long_long_le(),
                     }
             self.texture_packs.append(pack)
         for pack in self.texture_packs:
-            self.seek(pack["id_list_ptr"])
+            self.follow_ptr(pack["id_list_ptr"])
             pack["htsf_ids"] = []
             for i in range(pack["id_count"]):
                 if self.vc_game == 1:
@@ -1120,7 +1128,7 @@ class ValkSFNT(ValkFile):
         self.seek(0x20)
         file_count = self.read_long_le()
         toc_start = self.read_long_le()
-        self.seek(toc_start)
+        self.follow_ptr(toc_start)
         toc = []
         for i in range(file_count):
             file_ptr = self.read_long_le()
@@ -1259,7 +1267,7 @@ class ValkKFMO(ValkFile):
 
     def read_bone_list(self):
         self.bones = []
-        self.seek(self.bone_list_ptr)
+        self.follow_ptr(self.bone_list_ptr)
         for i in range(self.bone_count):
             bone = {
                 'flags': self.read_word_be(),
@@ -1275,7 +1283,7 @@ class ValkKFMO(ValkFile):
     def read_coord_animation(self, bone, ptr_key):
         if not (ptr_key in bone and bone[ptr_key]):
             return [0] * self.frame_count
-        self.seek(bone[ptr_key])
+        self.follow_ptr(bone[ptr_key])
         one = self.read_byte()
         data_type = self.read_byte()
         bits_after_decimal = self.read_byte()
@@ -1290,7 +1298,7 @@ class ValkKFMO(ValkFile):
         assert zero_0 == 0 and zero_1 == 0 and zero_2 == 0
         assert data_type in [1, 2, 3]
         assert bits_after_decimal in [0x00, 0x01, 0x02, 0x06, 0x07, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]
-        self.seek(frames_ptr)
+        self.follow_ptr(frames_ptr)
         frames = []
         for i in range(self.frame_count + 1):
             if data_type == 1:
@@ -1312,7 +1320,7 @@ class ValkKFMO(ValkFile):
             i += 1
             if not bone["xform_ptr"]:
                 continue
-            self.seek(bone["xform_ptr"])
+            self.follow_ptr(bone["xform_ptr"])
             if bone["flags"] & 0xe000:
                 bone["location"] = (self.read_float_be(), self.read_float_be(), self.read_float_be())
             else:
@@ -1333,7 +1341,7 @@ class ValkKFMO(ValkFile):
                 bone["scale"] = None
             #print("{:02x} Pose:".format(i), bone["location"], bone["rotation"], bone["scale"], bone["anim_ptr"], is_normal, magnitude)
             if bone["anim_ptr"]:
-                self.seek(bone["anim_ptr"])
+                self.follow_ptr(bone["anim_ptr"])
                 if bone["flags"] & 0xe000:
                     bone["location_ptr_x"] = self.read_long_be()
                     bone["location_ptr_y"] = self.read_long_be()
@@ -1441,43 +1449,43 @@ class ValkMXEC(ValkFile):
             self.model_block_ptr = self.read_long_be()
             self.file_block_ptr = self.read_long_be()
             if self.param_block_ptr:
-                self.seek(self.param_block_ptr + 0x4)
+                self.follow_ptr(self.param_block_ptr + 0x4)
                 self.param_count = self.read_long_be()
                 self.param_list_ptr = self.read_long_be()
             if self.model_block_ptr:
-                self.seek(self.model_block_ptr + 0x4)
+                self.follow_ptr(self.model_block_ptr + 0x4)
                 self.model_count = self.read_long_be()
                 self.model_list_ptr = self.read_long_be()
             if self.file_block_ptr:
-                self.seek(self.file_block_ptr + 0x4)
+                self.follow_ptr(self.file_block_ptr + 0x4)
                 self.file_count = self.read_long_be()
                 self.file_list_ptr = self.read_long_be()
         elif self.vc_game == 4:
             self.seek(self.header_length + 0x20)
-            self.param_block_ptr = self.read_long_long_le() + 0x20
-            self.model_block_ptr = self.read_long_long_le() + 0x20
-            self.file_block_ptr = self.read_long_long_le() + 0x20
-            if self.param_block_ptr > 0x20:
-                self.seek(self.param_block_ptr + 0x8)
+            self.param_block_ptr = self.read_long_long_le()
+            self.model_block_ptr = self.read_long_long_le()
+            self.file_block_ptr = self.read_long_long_le()
+            if self.param_block_ptr:
+                self.follow_ptr(self.param_block_ptr + 0x8)
                 self.param_count = self.read_long_le()
-                self.seek(self.param_block_ptr + 0x20)
-                self.param_list_ptr = self.read_long_long_le() + 0x20
-            if self.model_block_ptr > 0x20:
-                self.seek(self.model_block_ptr + 0x4)
+                self.follow_ptr(self.param_block_ptr + 0x20)
+                self.param_list_ptr = self.read_long_long_le()
+            if self.model_block_ptr:
+                self.follow_ptr(self.model_block_ptr + 0x4)
                 self.model_count = self.read_long_le()
-                self.seek(self.model_block_ptr + 0x20)
-                self.model_list_ptr = self.read_long_long_le() + 0x20
-            if self.file_block_ptr > 0x20:
-                self.seek(self.file_block_ptr + 0x4)
+                self.follow_ptr(self.model_block_ptr + 0x20)
+                self.model_list_ptr = self.read_long_long_le()
+            if self.file_block_ptr:
+                self.follow_ptr(self.file_block_ptr + 0x4)
                 self.file_count = self.read_long_le()
-                self.seek(self.file_block_ptr + 0x20)
-                self.file_list_ptr = self.read_long_long_le() + 0x20
+                self.follow_ptr(self.file_block_ptr + 0x20)
+                self.file_list_ptr = self.read_long_long_le()
 
     def read_parameter_list(self):
         from subprocess import check_output
         if not hasattr(self, "param_list_ptr"):
             return
-        self.seek(self.param_list_ptr)
+        self.follow_ptr(self.param_list_ptr)
         rows = []
         for i in range(self.param_count):
             if self.vc_game == 1:
@@ -1491,17 +1499,18 @@ class ValkMXEC(ValkFile):
                 row = {
                     "id": self.read_long_le(),
                     "data_length": self.read_long_le(),
-                    "name_ptr": self.read_long_long_le() + 0x20,
-                    "data_ptr": self.read_long_long_le() + 0x20,
+                    "name_ptr": self.read_long_long_le(),
+                    "data_ptr": self.read_long_long_le(),
                     }
                 self.read(8)
             rows.append(row)
         for row in rows:
-            self.seek(row["name_ptr"])
+            self.follow_ptr(row["name_ptr"])
             row["name"] = self.read_string(encoding = "shift_jis_2004")
             if self.PRINT_PARAMS:
+                data_pos = self.follow_ptr(row["data_ptr"])
                 print('Param:', row)
-                print(check_output(["xxd", "-s", str(row["data_ptr"] + self.offset), "-l", str(row["data_length"]), self.F.filename]).decode("ascii"))
+                print(check_output(["xxd", "-s", str(data_pos + self.offset), "-l", str(row["data_length"]), self.F.filename]).decode("ascii"))
         if self.PRINT_PARAMS:
             print('Done Reading Parameters')
         self.parameters = rows
@@ -1509,7 +1518,7 @@ class ValkMXEC(ValkFile):
     def read_model_list(self):
         if not hasattr(self, "model_list_ptr"):
             return
-        self.seek(self.model_list_ptr)
+        self.follow_ptr(self.model_list_ptr)
         rows = []
         for i in range(self.model_count):
             if self.vc_game == 1:
@@ -1525,13 +1534,13 @@ class ValkMXEC(ValkFile):
                     "unk1": self.read_long_le(),
                     "param_count": self.read_long_le(),
                     "unk2": self.read(0x10),
-                    "name_ptr": self.read_long_long_le() + 0x20,
-                    "param_list_ptr": self.read_long_long_le() + 0x20,
+                    "name_ptr": self.read_long_long_le(),
+                    "param_list_ptr": self.read_long_long_le(),
                     }
                 self.seek(0x28, True) # Always zero?
             rows.append(row)
         for row in rows:
-            self.seek(row["name_ptr"])
+            self.follow_ptr(row["name_ptr"])
             row["name"] = self.read_string(encoding = "shift_jis_2004")
             if self.PRINT_MODELS:
                 print('Model:', row)
@@ -1542,7 +1551,7 @@ class ValkMXEC(ValkFile):
     def read_file_list(self):
         if not hasattr(self, "file_list_ptr"):
             return
-        self.seek(self.file_list_ptr)
+        self.follow_ptr(self.file_list_ptr)
         file_rows = []
         for i in range(self.file_count):
             if self.vc_game == 1:
@@ -1565,8 +1574,8 @@ class ValkMXEC(ValkFile):
                     "htr_index": self.read_long_le(),
                     "unk1": self.read_long_le(),
                     "mmr_index": self.read_long_le(),
-                    "path_ptr": self.read_long_long_le() + 0x20,
-                    "filename_ptr": self.read_long_long_le() + 0x20,
+                    "path_ptr": self.read_long_long_le(),
+                    "filename_ptr": self.read_long_long_le(),
                     "unk2": self.read(0x18),
                     }
             # 0 = Not inside another file
@@ -1598,7 +1607,7 @@ class ValkMXEC(ValkFile):
             elif row["type"] == 0x18:
                 self.mmf_file = row
         for row in file_rows:
-            self.seek(row["filename_ptr"])
+            self.follow_ptr(row["filename_ptr"])
             row["filename"] = self.read_string()
             if self.PRINT_FILES:
                 print('File:', row)
@@ -1609,7 +1618,7 @@ class ValkMXEC(ValkFile):
     def read_model_param_ids(self):
         from subprocess import check_output
         for model in self.models:
-            self.seek(model["param_list_ptr"])
+            self.follow_ptr(model["param_list_ptr"])
             param_refs = []
             for i in range(model["param_count"]):
                 if self.vc_game == 1:
@@ -1620,16 +1629,16 @@ class ValkMXEC(ValkFile):
                 elif self.vc_game == 4:
                     param_id_count = self.read_long_le()
                     self.read(4)
-                    param_text_ptr = self.read_long_long_le() + 0x20
-                    param_id_ptr = self.read_long_long_le() + 0x20
+                    param_text_ptr = self.read_long_long_le()
+                    param_id_ptr = self.read_long_long_le()
                 param_refs.append([param_text_ptr, param_id_count, param_id_ptr])
             param_groups = []
             for param_text_ptr, param_id_count, param_id_ptr in param_refs:
                 param_group = {}
-                self.seek(param_text_ptr)
+                self.follow_ptr(param_text_ptr)
                 param_group["text"] = self.read_string("shift_jis_2004")
                 param_group["param_ids"] = []
-                self.seek(param_id_ptr)
+                self.follow_ptr(param_id_ptr)
                 if self.PRINT_MODEL_PARAMS:
                     print('Model Param Group:', param_group["text"])
                 for i in range(param_id_count):
@@ -1692,39 +1701,39 @@ class ValkMXEC(ValkFile):
                     param_id = group["param_ids"][0]
                     param = self.parameters[param_id]
                     if self.vc_game == 1:
-                        self.seek(param["data_ptr"] + 0x40)
+                        self.follow_ptr(param["data_ptr"] + 0x40)
                         model["location_x"] = self.read_float_be()
                         model["location_y"] = self.read_float_be()
                         model["location_z"] = self.read_float_be()
-                        self.seek(param["data_ptr"] + 0x50)
+                        self.follow_ptr(param["data_ptr"] + 0x50)
                         model["rotation_x"] = self.read_float_be()
                         model["rotation_y"] = self.read_float_be()
                         model["rotation_z"] = self.read_float_be()
-                        self.seek(param["data_ptr"] + 0x60)
+                        self.follow_ptr(param["data_ptr"] + 0x60)
                         model["scale_x"] = self.read_float_be()
                         model["scale_y"] = self.read_float_be()
                         model["scale_z"] = self.read_float_be()
-                        self.seek(param["data_ptr"] + 0x74)
+                        self.follow_ptr(param["data_ptr"] + 0x74)
                         model["model_file_id"] = self.read_long_be()
-                        self.seek(param["data_ptr"] + 0x84)
+                        self.follow_ptr(param["data_ptr"] + 0x84)
                         model["texture_file_id"] = self.read_long_be()
                     elif self.vc_game == 4:
                         if group["text"] in ["SlgEnObject", "EnHeightField", "EnSky"] + self.model_types:
-                            self.seek(param["data_ptr"] + 0x10)
+                            self.follow_ptr(param["data_ptr"] + 0x10)
                             model["location_x"] = self.read_float_le()
                             model["location_y"] = self.read_float_le()
                             model["location_z"] = self.read_float_le()
-                            self.seek(param["data_ptr"] + 0x20)
+                            self.follow_ptr(param["data_ptr"] + 0x20)
                             model["rotation_x"] = self.read_float_le()
                             model["rotation_y"] = self.read_float_le()
                             model["rotation_z"] = self.read_float_le()
-                            self.seek(param["data_ptr"] + 0x30)
+                            self.follow_ptr(param["data_ptr"] + 0x30)
                             model["scale_x"] = self.read_float_le()
                             model["scale_y"] = self.read_float_le()
                             model["scale_z"] = self.read_float_le()
-                            self.seek(param["data_ptr"] + 0x40)
+                            self.follow_ptr(param["data_ptr"] + 0x40)
                             model["model_file_id"] = self.read_long_le()
-                            self.seek(param["data_ptr"] + 0x48)
+                            self.follow_ptr(param["data_ptr"] + 0x48)
                             model["texture_file_id"] = self.read_long_le()
                         else:
                             print(group["text"])
