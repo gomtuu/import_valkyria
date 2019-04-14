@@ -512,16 +512,19 @@ class KFMD_Model:
             mesh.update()
             # Move accessories to proper places
             parent_bone_id = mesh_dict["object"]["parent_bone_id"]
-            if parent_bone_id >= 0:
-                parent_bone = self.bones[parent_bone_id]
-                if parent_bone["name"] in self.armature.data.bones:
-                    bone = self.armature.data.bones[parent_bone["name"]]
-                    bone_matrix = bone.matrix_local * mathutils.Matrix.Translation((0,bone.length,0))
-                    mesh_dict["bpy"].parent_type = 'BONE'
-                    mesh_dict["bpy"].parent_bone = parent_bone["name"]
-                    mesh_dict["bpy"].matrix_parent_inverse = bone_matrix.inverted() * parent_bone["accum_matrix"]
-            else:
-                mesh_dict["bpy"].parent_type = 'ARMATURE'
+            parent_bone = self.bones[parent_bone_id]
+            if parent_bone["name"] in self.armature.data.bones:
+                bone = self.armature.data.bones[parent_bone["name"]]
+                bone_matrix = bone.matrix_local * mathutils.Matrix.Translation((0,bone.length,0))
+                mesh_dict["bpy"].parent_type = 'BONE'
+                mesh_dict["bpy"].parent_bone = parent_bone["name"]
+                mesh_dict["bpy"].matrix_parent_inverse = bone_matrix.inverted() * parent_bone["accum_matrix"]
+            # Reparent meshes that have vertex groups back to the armature
+            if mesh_dict["object"]["parent_is_armature"]:
+                bpy.ops.object.select_all(action='DESELECT')
+                mesh_dict["bpy"].select = True
+                bpy.context.scene.objects.active = self.armature
+                bpy.ops.object.parent_set(type='ARMATURE', keep_transform=True)
 
     def assign_vertex_groups(self):
         for mesh in self.meshes:

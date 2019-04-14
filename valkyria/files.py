@@ -473,7 +473,7 @@ class ValkKFMS(ValkFile):
         for i in range(self.object_count):
             self.objects.append({
                 'id': self.read_long_be(),
-                'u01': self.read_word_be(), # Has vertex groups?
+                'parent_is_armature': self.read_word_be(),
                 'parent_bone_id': self.read_word_be(),
                 'material_ptr': self.read_long_be(),
                 'mesh_count': self.read_long_be(),
