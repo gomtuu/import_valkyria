@@ -764,6 +764,8 @@ class KFMD_Model:
             temp_object = scene.objects.active
             temp_object.name = "HSHP-{:02d}".format(shape_key_set.shape_key_set_id)
             for i, vertex in enumerate(shape_vertices):
+                if not "translate_x" in vertex:
+                    continue
                 j = i + vertex_shift
                 old = temp_object.data.vertices[j].co
                 new = [old[0] + vertex["translate_x"],

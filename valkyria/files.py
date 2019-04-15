@@ -336,7 +336,21 @@ class ValkKFSS(ValkFile):
                     'bytes_per_vertex': self.read_long_le(),
                 }
                 del(vertfmt['unk'])
-                assert vertfmt['bytes_per_vertex'] in [0x0, 0xc, 0x18, 0x1c]
+                struct_def_row_count = self.read_long_le()
+                if struct_def_row_count:
+                    vertfmt['struct_def'] = []
+                self.read(4)
+                struct_def_ptr = self.read_long_long_le()
+                self.follow_ptr(struct_def_ptr)
+                for j in range(struct_def_row_count):
+                    info_type = self.read_long_le() # Position, UV
+                    data_type = self.read_long_le() # 0x1 = Byte, 0xa = Float
+                    unknown = self.read_long_le() # related to UV somehow?
+                    offset = self.read_long_le() # bytes before this item in the struct
+                    value_count = self.read_long_le() # 2 (u,v) or 3 (x,y,z)
+                    struct_row = (offset, (info_type, data_type, value_count))
+                    vertfmt['struct_def'].append(struct_row)
+                assert vertfmt['bytes_per_vertex'] in [0x0, 0x8, 0xc, 0x14, 0x18, 0x1c]
                 self.vertex_formats.append(vertfmt)
 
     def read_key_list(self):
@@ -393,6 +407,9 @@ class ValkKFSS(ValkFile):
 class ValkKFSG(ValkFile):
     # Doesn't contain other files.
     # Holds shape key data
+    VERT_LOCATION = (0x1, 0xa, 0x3)
+    VERT_UV1 = (0x7, 0xa, 0x2)
+
     def read_data(self):
         if self.vc_game == 1:
             read_float = self.read_float_be
@@ -407,16 +424,33 @@ class ValkKFSG(ValkFile):
                         "translate_x": 0.0,
                         "translate_y": 0.0,
                         "translate_z": 0.0,
+                        "translate_u": 0.0,
+                        "translate_v": 0.0,
                         }
                     vertices.append(vertex)
                 for i in range(keep):
-                    vertex = {
-                        "translate_x": read_float(),
-                        "translate_y": read_float(),
-                        "translate_z": read_float(),
-                        }
-                    if vertfmt['bytes_per_vertex'] > 0xc:
-                        self.read(vertfmt['bytes_per_vertex'] - 0xc)
+                    if self.vc_game == 1:
+                        vertex = {
+                            "translate_x": read_float(),
+                            "translate_y": read_float(),
+                            "translate_z": read_float(),
+                            }
+                        if vertfmt['bytes_per_vertex'] > 0xc:
+                            self.read(vertfmt['bytes_per_vertex'] - 0xc)
+                    elif self.vc_game == 4:
+                        struct = vertfmt['struct_def']
+                        read_float = self.read_float_le
+                        vertex = {}
+                        for offset, element in struct:
+                            if element == self.VERT_LOCATION:
+                                vertex['translate_x'] = read_float()
+                                vertex['translate_y'] = read_float()
+                                vertex['translate_z'] = read_float()
+                            elif element == self.VERT_UV1:
+                                vertex['translate_u'] = read_float()
+                                vertex['translate_v'] = -1 * read_float()
+                            else:
+                                raise NotImplementedError('Unsupported shape key vertex info')
                     vertices.append(vertex)
             vertfmt['vertices'] = vertices
 
@@ -549,7 +583,7 @@ class ValkKFMS(ValkFile):
                 struct_def_ptr = self.read_long_long_le()
                 self.follow_ptr(struct_def_ptr)
                 for j in range(struct_def_row_count):
-                    offset = self.read(4)
+                    offset = self.read_long_le() # bytes before this item in the struct
                     struct_row = (
                         offset, (
                         self.read_long_le(), # info type: Position, Normal, Color, UV, Weights
