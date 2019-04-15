@@ -534,13 +534,30 @@ class ValkKFMS(ValkFile):
             for i in range(self.vertex_format_count):
                 self.follow_ptr(self.mesh_info_ptr + 0x80 * i)
                 self.read(4)
-                self.vertex_formats.append({
+                vertex_format = {
                     'bytes_per_vertex': self.read_long_le(),
                     'face_ptr': self.read_long_le(),
                     'face_count': self.read_long_le(),
                     'vertex_ptr': self.read_long_le(),
                     'vertex_count': self.read_long_le(),
-                    })
+                    }
+                self.read(0x10)
+                struct_def_row_count = self.read_long_le()
+                if struct_def_row_count:
+                    vertex_format['struct_def'] = []
+                self.read(0x24)
+                struct_def_ptr = self.read_long_long_le()
+                self.follow_ptr(struct_def_ptr)
+                for j in range(struct_def_row_count):
+                    offset = self.read(4)
+                    struct_row = (
+                        offset, (
+                        self.read_long_le(), # info type: Position, Normal, Color, UV, Weights
+                        self.read_long_le(), # data type: 0x1 = Byte, 0xa = Float
+                        self.read_long_le() # value count: 2 (u,v) or 3 (x,y,z) or 4 (r,g,b,a)
+                        ))
+                    vertex_format['struct_def'].append(struct_row)
+                self.vertex_formats.append(vertex_format)
         else:
             self.read(4)
             self.vertex_formats.append({
@@ -847,6 +864,18 @@ class ValkKFMS(ValkFile):
 class ValkKFMG(ValkFile):
     # Doesn't contain other files.
     # Holds mesh vertex and face data.
+    VERT_LOCATION = (0x1, 0xa, 0x3)
+    VERT_WEIGHTS = (0x2, 0xa, 0x3)
+    VERT_GROUPS = (0x3, 0x1, 0x4)
+    VERT_NORMAL= (0x4, 0xa, 0x3)
+    VERT_UNKNOWN = (0x5, 0xa, 0x3)
+    VERT_UV1 = (0x7, 0xa, 0x2)
+    VERT_UV2 = (0x8, 0xa, 0x2)
+    VERT_UV3 = (0x9, 0xa, 0x2)
+    VERT_UV4 = (0xa, 0xa, 0x2)
+    VERT_UV5 = (0xb, 0xa, 0x2)
+    VERT_COLOR = (0xf, 0xa, 0x4)
+
     def read_faces(self, first_word, word_count, vertex_format):
         fmt_face_offset = vertex_format['face_ptr']
         self.seek(self.header_length + self.face_ptr + fmt_face_offset + first_word * 2)
@@ -878,9 +907,9 @@ class ValkKFMG(ValkFile):
                 v2 = v3
         return faces
 
-    def read_vertex(self, bytes_per_vertex):
-        if bytes_per_vertex == 0x2c:
-            # VC1
+    def read_vertex(self, vertex_format):
+        bytes_per_vertex = vertex_format['bytes_per_vertex']
+        if self.vc_game == 1 and bytes_per_vertex == 0x2c:
             vertex = {
                 'location_x': self.read_float_be(),
                 'location_y': self.read_float_be(),
@@ -897,8 +926,7 @@ class ValkKFMG(ValkFile):
                 'v2': self.read_half_float_be() * -1,
                 'unknown_4': self.read(4),
                 }
-        elif bytes_per_vertex == 0x30:
-            # VC1
+        elif self.vc_game == 1 and bytes_per_vertex == 0x30:
             vertex = {
                 'location_x': self.read_float_be(),
                 'location_y': self.read_float_be(),
@@ -920,44 +948,7 @@ class ValkKFMG(ValkFile):
                 'normal_z': self.read_half_float_be(),
                 'unknown_2': self.read(6),
                 }
-        elif bytes_per_vertex == 0x40:
-            # VC4
-            vertex = {
-                'location_x': self.read_float_le(),
-                'location_y': self.read_float_le(),
-                'location_z': self.read_float_le(),
-                'normal_x': self.read_float_le(),
-                'normal_y': self.read_float_le(),
-                'normal_z': self.read_float_le(),
-                'unknown_1': self.read(4 * 4),
-                'u': self.read_float_le(),
-                'v': self.read_float_le() * -1,
-                'vertex_group_weight_1': self.read_float_le(),
-                'vertex_group_weight_2': self.read_float_le(),
-                'vertex_group_weight_3': self.read_float_le(),
-                'vertex_group_1': self.read_byte(),
-                'vertex_group_2': self.read_byte(),
-                'vertex_group_3': self.read_byte(),
-                'vertex_group_4': self.read_byte(), # Junk?
-                }
-        elif bytes_per_vertex == 0x48:
-            # VC4
-            vertex = {
-                'location_x': self.read_float_le(),
-                'location_y': self.read_float_le(),
-                'location_z': self.read_float_le(),
-                'normal_x': self.read_float_le(),
-                'normal_y': self.read_float_le(),
-                'normal_z': self.read_float_le(),
-                'unknown_1': self.read(4 * 4),
-                'u': self.read_float_le(),
-                'v': self.read_float_le() * -1,
-                'u2': self.read_float_le(),
-                'v2': self.read_float_le() * -1,
-                'unknown_2': self.read(4 * 4),
-                }
-        elif bytes_per_vertex == 0x50:
-            # VC1
+        elif self.vc_game == 1 and bytes_per_vertex == 0x50:
             vertex = {
                 'location_x': self.read_float_be(),
                 'location_y': self.read_float_be(),
@@ -974,6 +965,54 @@ class ValkKFMG(ValkFile):
                 'v2': self.read_float_be() * -1,
                 'unknown_4': self.read(4 * 4),
                 }
+        elif self.vc_game == 4:
+            struct = vertex_format['struct_def']
+            read_float = self.read_float_le
+            vertex = {}
+            for offset, element in struct:
+                if element == self.VERT_LOCATION:
+                    vertex['location_x'] = read_float()
+                    vertex['location_y'] = read_float()
+                    vertex['location_z'] = read_float()
+                elif element == self.VERT_WEIGHTS:
+                    vertex['vertex_group_weight_1'] = read_float()
+                    vertex['vertex_group_weight_2'] = read_float()
+                    vertex['vertex_group_weight_3'] = read_float()
+                elif element == self.VERT_GROUPS:
+                    vertex['vertex_group_1'] = self.read_byte()
+                    vertex['vertex_group_2'] = self.read_byte()
+                    vertex['vertex_group_3'] = self.read_byte()
+                    vertex['vertex_group_4'] = self.read_byte()
+                elif element == self.VERT_NORMAL:
+                    vertex['normal_x'] = read_float()
+                    vertex['normal_y'] = read_float()
+                    vertex['normal_z'] = read_float()
+                elif element == self.VERT_UNKNOWN:
+                    vertex['unknown_1'] = read_float()
+                    vertex['unknown_2'] = read_float()
+                    vertex['unknown_3'] = read_float()
+                elif element == self.VERT_UV1:
+                    vertex['u'] = read_float()
+                    vertex['v'] = -1 * read_float()
+                elif element == self.VERT_UV2:
+                    vertex['u2'] = read_float()
+                    vertex['v2'] = -1 * read_float()
+                elif element == self.VERT_UV3:
+                    vertex['u3'] = read_float()
+                    vertex['v3'] = -1 * read_float()
+                elif element == self.VERT_UV4:
+                    vertex['u4'] = read_float()
+                    vertex['v4'] = -1 * read_float()
+                elif element == self.VERT_UV5:
+                    vertex['u5'] = read_float()
+                    vertex['v5'] = -1 * read_float()
+                elif element == self.VERT_COLOR:
+                    vertex['color_r'] = read_float()
+                    vertex['color_g'] = read_float()
+                    vertex['color_b'] = read_float()
+                    vertex['color_a'] = read_float()
+        else:
+            raise NotImplementedError('Unsupported vertex type. Bytes per vertex: {}'.format(bytes_per_vertex))
         return vertex
 
     def read_vertices(self, first_vertex, vertex_count, vertex_format):
@@ -982,7 +1021,7 @@ class ValkKFMG(ValkFile):
         self.seek(self.header_length + self.vertex_ptr + fmt_vertex_offset + first_vertex * fmt_bytes_per_vertex)
         vertices = []
         for i in range(vertex_count):
-            vertex = self.read_vertex(fmt_bytes_per_vertex)
+            vertex = self.read_vertex(vertex_format)
             vertices.append(vertex)
         return vertices
 
