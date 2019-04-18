@@ -1008,6 +1008,7 @@ class ValkKFMG(ValkFile):
             struct = vertex_format['struct_def']
             read_float = self.read_float_le
             vertex = {}
+            vertex_begin = self.tell()
             for offset, element in struct:
                 if element == self.VERT_LOCATION:
                     vertex['location_x'] = read_float()
@@ -1050,6 +1051,11 @@ class ValkKFMG(ValkFile):
                     vertex['color_g'] = read_float()
                     vertex['color_b'] = read_float()
                     vertex['color_a'] = read_float()
+                else:
+                    raise NotImplementedError('Unknown vertex data element: {}'.format(element))
+            # Sometimes vertex data is padded, and bytes_per_vertex is larger
+            # than the actual amount of data in a vertex.
+            self.seek(vertex_begin + vertex_format['bytes_per_vertex'])
         else:
             raise NotImplementedError('Unsupported vertex type. Bytes per vertex: {}'.format(bytes_per_vertex))
         return vertex
