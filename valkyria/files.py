@@ -976,7 +976,8 @@ class ValkKFMG(ValkFile):
                 'vertex_group_4': self.read_byte(), # Junk?
                 'vertex_group_weight_1': self.read_half_float_be(),
                 'vertex_group_weight_2': self.read_half_float_be(),
-                'unknown_1': self.read(4),
+                'vertex_group_weight_3': self.read_half_float_be(),
+                'unknown_1': self.read(2),
                 'u': self.read_half_float_be(),
                 'v': self.read_half_float_be() * -1,
                 'u2': self.read_half_float_be(),
@@ -1055,7 +1056,7 @@ class ValkKFMG(ValkFile):
                     raise NotImplementedError('Unknown vertex data element: {}'.format(element))
             # Sometimes vertex data is padded, and bytes_per_vertex is larger
             # than the actual amount of data in a vertex.
-            self.seek(vertex_begin + vertex_format['bytes_per_vertex'])
+            self.seek(vertex_begin + bytes_per_vertex)
         else:
             raise NotImplementedError('Unsupported vertex type. Bytes per vertex: {}'.format(bytes_per_vertex))
         return vertex

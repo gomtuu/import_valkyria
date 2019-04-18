@@ -579,14 +579,18 @@ class KFMD_Model:
         for mesh in self.meshes:
             vertex_groups = {}
             for i, vertex in enumerate(mesh["vertices"]):
-                if "vertex_group_1" not in vertex:
-                    break
-                if vertex["vertex_group_1"] not in vertex_groups:
-                    vertex_groups[vertex["vertex_group_1"]] = []
-                vertex_groups[vertex["vertex_group_1"]].append([i, vertex["vertex_group_weight_1"]])
-                if vertex["vertex_group_2"] not in vertex_groups:
-                    vertex_groups[vertex["vertex_group_2"]] = []
-                vertex_groups[vertex["vertex_group_2"]].append([i, vertex["vertex_group_weight_2"]])
+                if "vertex_group_1" in vertex:
+                    if vertex["vertex_group_1"] not in vertex_groups:
+                        vertex_groups[vertex["vertex_group_1"]] = []
+                    vertex_groups[vertex["vertex_group_1"]].append([i, vertex["vertex_group_weight_1"]])
+                if "vertex_group_2" in vertex:
+                    if vertex["vertex_group_2"] not in vertex_groups:
+                        vertex_groups[vertex["vertex_group_2"]] = []
+                    vertex_groups[vertex["vertex_group_2"]].append([i, vertex["vertex_group_weight_2"]])
+                if "vertex_group_3" in vertex:
+                    if vertex["vertex_group_3"] not in vertex_groups:
+                        vertex_groups[vertex["vertex_group_3"]] = []
+                    vertex_groups[vertex["vertex_group_3"]].append([i, vertex["vertex_group_weight_3"]])
             mesh["vertex_groups"] = vertex_groups
 
     def read_data(self):
