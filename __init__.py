@@ -644,13 +644,17 @@ class KFMD_Model:
                 slot2.texture_coords = 'UV'
                 slot2.texture = material_dict["texture2"]["bpy"]
             if material_dict["texture3_ptr"]:
-                slot2 = material.texture_slots.add()
-                slot2.texture_coords = 'UV'
-                slot2.texture = material_dict["texture3"]["bpy"]
+                slot3 = material.texture_slots.add()
+                slot3.texture_coords = 'UV'
+                slot3.texture = material_dict["texture3"]["bpy"]
                 # This texture slot is (almost?) always used to add shading
                 # to a character's eyeball. The texture needs to be multiplied
                 # instead of mixed for the shading to look right.
-                slot2.blend_type = 'MULTIPLY'
+                slot3.blend_type = 'MULTIPLY'
+            if material_dict["texture4_ptr"]:
+                slot4 = material.texture_slots.add()
+                slot4.texture_coords = 'UV'
+                slot4.texture = material_dict["texture4"]["bpy"]
             if material_dict["use_backface_culling"]:
                 material.use_nodes = True
                 material.use_transparency = True

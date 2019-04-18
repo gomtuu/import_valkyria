@@ -753,6 +753,7 @@ class ValkKFMS(ValkFile):
                 material['texture1_ptr'] = self.read_long_long_le()
                 material['texture2_ptr'] = self.read_long_long_le()
                 material['texture3_ptr'] = self.read_long_long_le()
+                material['texture4_ptr'] = self.read_long_long_le()
             self.materials[material['ptr']] = material
 
     def read_object_list(self):
@@ -878,6 +879,10 @@ class ValkKFMS(ValkFile):
                     material['texture3'] = self.textures[material['texture3_ptr']]
                 else:
                     material['texture3'] = None
+                if material['texture4_ptr']:
+                    material['texture4'] = self.textures[material['texture4_ptr']]
+                else:
+                    material['texture4'] = None
 
     def read_data(self):
         self.read_toc()
