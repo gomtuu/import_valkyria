@@ -408,6 +408,7 @@ class ValkKFSG(ValkFile):
     # Doesn't contain other files.
     # Holds shape key data
     VERT_LOCATION = (0x1, 0xa, 0x3)
+    VERT_NORMAL= (0x4, 0xa, 0x3)
     VERT_UV1 = (0x7, 0xa, 0x2)
 
     def read_data(self):
@@ -449,8 +450,12 @@ class ValkKFSG(ValkFile):
                             elif element == self.VERT_UV1:
                                 vertex['translate_u'] = read_float()
                                 vertex['translate_v'] = -1 * read_float()
+                            elif element == self.VERT_NORMAL:
+                                vertex['translate_normal_x'] = read_float()
+                                vertex['translate_normal_y'] = read_float()
+                                vertex['translate_normal_z'] = read_float()
                             else:
-                                raise NotImplementedError('Unsupported shape key vertex info')
+                                raise NotImplementedError('Unsupported shape key vertex info: {}'.format(element))
                     vertices.append(vertex)
             vertfmt['vertices'] = vertices
 
