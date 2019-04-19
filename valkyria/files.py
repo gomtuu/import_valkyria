@@ -2242,7 +2242,25 @@ class Valk4MBMD(ValkFile):
 
 class Valk4SDPK(ValkFile):
     # Unknown block found in Valkyria Chronicles 4
-    pass
+    # Contains ALBD, EFSC, HMDL, HMOT, HMMT, and HTEX blocks
+    # Mostly visual effects
+    def container_func(self):
+        self.seek(self.header_length)
+        self.read(0x4) # Unknown
+        section_count = self.read_long_le()
+        self.read(0x8) # Unknown
+        for i in range(section_count):
+            file_count = self.read_long_le()
+            section_id = self.read(8)
+            pad = self.read(4)
+            for j in range(file_count):
+                file_id = self.read(8)
+                file_size = self.read_long_le()
+                pad = self.read(4)
+                begin = self.tell()
+                inner_file = valk_factory(self, begin)
+                self.add_inner_file(inner_file)
+                self.seek(begin + file_size)
 
 
 class Valk4ATUD(ValkFile):
@@ -2341,6 +2359,16 @@ class Valk4CRBP(ValkFile):
 class Valk4SACC(ValkFile):
     # Unknown block found in Valkyria Chronicles 4
     # Contains SACC, SAC, and VSTD blocks
+    pass
+
+
+class Valk4ALBD(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
+    pass
+
+
+class Valk4EFSC(ValkFile):
+    # Unknown block found in Valkyria Chronicles 4
     pass
 
 
@@ -2451,6 +2479,8 @@ file_types = {
     'XLSB': Valk4XLSB,
     'CRBP': Valk4CRBP,
     'SACC': Valk4SACC,
+    'ALBD': Valk4ALBD,
+    'EFSC': Valk4EFSC,
     }
 
 def valk_factory(F, offset=0, parent=None):
