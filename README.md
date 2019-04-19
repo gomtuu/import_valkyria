@@ -21,6 +21,8 @@ click its checkbox.
 If you want `import_valkyria` to activate automatically when you start
 Blender, open the **File** menu and choose **Save Startup File**.
 
+*Valkyria Chronicles 4* models use a relatively new variation of the DDS texture format, known as BC7. Not all of the textures are BC7, but many of them are, and Blender does not support BC7. Therefore, if you want to import *Valkyria Chronicles 4* models with textures included, you will need to install an image converter so that `import_valkyria` can use it. See the wiki for more information.
+
 ## Importing Models
 
 Once `import_valkyria` is installed and activated, you can import a model by
