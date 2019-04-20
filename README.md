@@ -62,7 +62,7 @@ Please [report](https://github.com/gomtuu/import_valkyria/issues/new) any proble
 
 ## Changelog
 
-### 20??-??-??: Version 0.8
+### 2019-04-20: Version 0.8
 
 * Added support for *Valkyria Chronicles 4* model files.
 * When opening .HMD files, look for textures in .HTX file of the same name.
