@@ -11,7 +11,7 @@ bl_info = {
         "name": "Valkyria Chronicles (.MLX, .HMD, .ABR, .MXE)",
         "description": "Imports model files from Valkyria Chronicles (PS3)",
         "author": "Chrrox, Gomtuu",
-        "version": (0, 7),
+        "version": (0, 8),
         "blender": (2, 74, 0),
         "location": "File > Import",
         "warning": "",
@@ -81,13 +81,41 @@ class HTSF_Image:
         tmp_dds.write(self.dds.data)
         tmp_dds.close()
 
+    def convert_dds_to_png(self, dds_path):
+        from bpy_extras.image_utils import load_image
+        import platform
+        import pathlib
+        import subprocess
+        png_path = dds_path[0:-4] + '.png'
+        home = pathlib.Path.home()
+        current_os = platform.system()
+        if current_os == 'Linux':
+            converter = home / 'Compressonator' / 'CompressonatorCLI'
+            command = ['sh', str(converter), '-fs', 'BC7', dds_path, png_path]
+        if current_os == 'Darwin':
+            converter = home / 'Compressonator' / 'CompressonatorCLI.sh'
+            command = ['sh', str(converter), '-fs', 'BC7', dds_path, png_path]
+        if current_os == 'Windows':
+            converter = home / 'texconv' / 'texconv.exe'
+            dds_folder = pathlib.Path(dds_path).parent
+            command = [str(converter), '-ft', 'png', '-o', str(dds_folder), dds_path]
+            png_path = dds_path[0:-4] + '.PNG'
+        subprocess.run(command)
+        self.image = load_image(png_path)
+        self.image.pack()
+        os.remove(png_path)
+
     def build_blender(self):
         from bpy_extras.image_utils import load_image
         tempdir = bpy.app.tempdir
         dds_path = os.path.join(tempdir, self.filename)
         self.write_tmp_dds(dds_path)
         self.image = load_image(dds_path)
+        supported = self.image.size[0] > 0 or self.image.size[1] > 0
         self.image.pack()
+        if not supported:
+            # DDS file is probably BC7, which Blender doesn't support yet.
+            self.convert_dds_to_png(dds_path)
         os.remove(dds_path)
 
     def read_data(self):
@@ -160,6 +188,7 @@ class IZCA_Model:
             model.build_blender()
             model.assign_materials(texture_pack.htsf_images)
         for shape_key_set in self.shape_key_sets:
+            # TODO: Is there a smarter way to determine which models use shape keys?
             self.hmdl_models[1].build_shape_keys(shape_key_set)
 
     def finalize_blender(self):
@@ -433,8 +462,8 @@ class HMDL_Model:
             model.assign_materials()
 
     def build_shape_keys(self, shape_key_set):
-        for model in self.kfmd_models:
-            model.build_shape_keys(shape_key_set)
+        # TODO: Is there a smarter way to determine which models use shape keys?
+        self.kfmd_models[0].build_shape_keys(shape_key_set)
 
     def finalize_blender(self):
         for model in self.kfmd_models:
@@ -504,7 +533,8 @@ class KFMD_Model:
                 vertex_array.append(vertex["location_z"])
             mesh.vertices.foreach_set("co", vertex_array)
             # Create faces
-            mesh.tessfaces.add(len(mesh_dict['faces']))
+            face_count = len(mesh_dict["faces"])
+            mesh.tessfaces.add(face_count)
             face_array = []
             for face in mesh_dict["faces"]:
                 face_array.extend(face)
@@ -544,8 +574,7 @@ class KFMD_Model:
         self.armature = self.build_armature()
         self.armature.parent = self.empty
         self.build_meshes()
-        if self.kfmg.bytes_per_vertex == 0x30:
-            self.assign_vertex_groups()
+        self.assign_vertex_groups()
 
     def index_vertex_groups(self):
         # TODO: This function and assign_vertex_groups might be a little
@@ -553,12 +582,18 @@ class KFMD_Model:
         for mesh in self.meshes:
             vertex_groups = {}
             for i, vertex in enumerate(mesh["vertices"]):
-                if vertex["vertex_group_1"] not in vertex_groups:
-                    vertex_groups[vertex["vertex_group_1"]] = []
-                vertex_groups[vertex["vertex_group_1"]].append([i, vertex["vertex_group_weight_1"]])
-                if vertex["vertex_group_2"] not in vertex_groups:
-                    vertex_groups[vertex["vertex_group_2"]] = []
-                vertex_groups[vertex["vertex_group_2"]].append([i, vertex["vertex_group_weight_2"]])
+                if "vertex_group_1" in vertex:
+                    if vertex["vertex_group_1"] not in vertex_groups:
+                        vertex_groups[vertex["vertex_group_1"]] = []
+                    vertex_groups[vertex["vertex_group_1"]].append([i, vertex["vertex_group_weight_1"]])
+                if "vertex_group_2" in vertex:
+                    if vertex["vertex_group_2"] not in vertex_groups:
+                        vertex_groups[vertex["vertex_group_2"]] = []
+                    vertex_groups[vertex["vertex_group_2"]].append([i, vertex["vertex_group_weight_2"]])
+                if "vertex_group_3" in vertex:
+                    if vertex["vertex_group_3"] not in vertex_groups:
+                        vertex_groups[vertex["vertex_group_3"]] = []
+                    vertex_groups[vertex["vertex_group_3"]].append([i, vertex["vertex_group_weight_3"]])
             mesh["vertex_groups"] = vertex_groups
 
     def read_data(self):
@@ -567,8 +602,7 @@ class KFMD_Model:
         self.materials = self.F.materials
         self.meshes = self.F.meshes
         self.textures = self.F.textures
-        if self.kfmg.bytes_per_vertex == 0x30:
-            self.index_vertex_groups()
+        self.index_vertex_groups()
 
     def create_oneside(self):
         self.oneside = bpy.data.textures.new("OneSide", type='BLEND')
@@ -581,6 +615,66 @@ class KFMD_Model:
         element1.color = (1.0, 1.0, 1.0, 1.0)
 
     def build_materials(self, texture_pack):
+        if self.kfms.vc_game == 1:
+            self.build_materials_old(texture_pack)
+        elif self.kfms.vc_game == 4:
+            self.build_materials_new(texture_pack)
+
+    def build_materials_new(self, texture_pack):
+        for ptr, texture_dict in self.textures.items():
+            name = "Texture-{:04x}".format(ptr)
+            texture_dict["bpy"] = bpy.data.textures.new(name, type = 'IMAGE')
+            texture_dict["bpy"].image = texture_pack[texture_dict["image"]].image
+            texture_dict["bpy"].use_alpha = True
+        for ptr, material_dict in self.materials.items():
+            name = "Material-{:04x}".format(ptr)
+            material_dict["bpy"] = material = bpy.data.materials.new(name)
+            #material.game_settings.use_backface_culling = material_dict["use_backface_culling"]
+            material.diffuse_intensity = 1.0
+            material.specular_intensity = 0.0
+            if material_dict["texture0_ptr"]:
+                slot0 = material.texture_slots.add()
+                slot0.texture_coords = 'UV'
+                slot0.texture = material_dict["texture0"]["bpy"]
+                slot0.use_map_alpha = True
+                slot0.alpha_factor = 1.0
+            if material_dict["use_transparency"]:
+                material.use_transparency = True
+                material.transparency_method = 'Z_TRANSPARENCY'
+                material.alpha = 0.0
+            if material_dict["texture1_ptr"]:
+                slot1 = material.texture_slots.add()
+                slot1.texture_coords = 'UV'
+                slot1.texture = material_dict["texture1"]["bpy"]
+            if material_dict["texture2_ptr"]:
+                slot2 = material.texture_slots.add()
+                slot2.texture_coords = 'UV'
+                slot2.texture = material_dict["texture2"]["bpy"]
+            if material_dict["texture3_ptr"]:
+                slot3 = material.texture_slots.add()
+                slot3.texture_coords = 'UV'
+                slot3.texture = material_dict["texture3"]["bpy"]
+                # This texture slot is (almost?) always used to add shading
+                # to a character's eyeball. The texture needs to be multiplied
+                # instead of mixed for the shading to look right.
+                slot3.blend_type = 'MULTIPLY'
+            if material_dict["texture4_ptr"]:
+                slot4 = material.texture_slots.add()
+                slot4.texture_coords = 'UV'
+                slot4.texture = material_dict["texture4"]["bpy"]
+            if material_dict["use_backface_culling"]:
+                material.use_nodes = True
+                material.use_transparency = True
+                nodes = material.node_tree.nodes
+                nodes['Material'].material = material
+                geom = nodes.new('ShaderNodeGeometry')
+                math = nodes.new('ShaderNodeMath')
+                math.operation = 'MULTIPLY'
+                material.node_tree.links.new(nodes['Material'].outputs['Alpha'], math.inputs[0])
+                material.node_tree.links.new(geom.outputs['Front/Back'], math.inputs[1])
+                material.node_tree.links.new(math.outputs['Value'], nodes['Output'].inputs['Alpha'])
+
+    def build_materials_old(self, texture_pack):
         for ptr, texture_dict in self.textures.items():
             # TODO: Consider doing this another way.
             name = "Texture-{:04x}".format(ptr)
@@ -649,6 +743,8 @@ class KFMD_Model:
                     material.texture_slots[slot_i].uv_layer = uvname
                     image = material.texture_slots[slot_i].texture.image
                     for i, face in enumerate(mesh["faces"]):
+                        if u[slot_i] not in mesh["vertices"][face[0]]:
+                            break
                         mesh["bpy"].data.polygons[i].use_smooth = 1
                         uv_layer.data[i*3 + 0].uv = (mesh["vertices"][face[0]][u[slot_i]], mesh["vertices"][face[0]][v[slot_i]] + 1)
                         uv_layer.data[i*3 + 1].uv = (mesh["vertices"][face[1]][u[slot_i]], mesh["vertices"][face[1]][v[slot_i]] + 1)
@@ -658,7 +754,14 @@ class KFMD_Model:
     def build_shape_keys(self, shape_key_set):
         scene = bpy.context.scene
         for mesh, shape_key in zip(self.meshes, shape_key_set.shape_keys):
-            vertex_shift = len(mesh["bpy"].data.vertices) - len(shape_key["vertices"])
+            if shape_key['vc_game'] == 1:
+                shape_vertices = shape_key["vertices"]
+                vertex_shift = len(mesh["bpy"].data.vertices) - len(shape_vertices)
+            elif shape_key['vc_game'] == 4:
+                slice_start = mesh["first_vertex"]
+                slice_end = slice_start + mesh["vertex_count"]
+                shape_vertices = shape_key["vertices"][slice_start:slice_end]
+                vertex_shift = 0
             if "bpy_dup_base" not in mesh:
                 bpy.ops.object.select_all(action='DESELECT')
                 scene.objects.active = mesh["bpy"]
@@ -671,7 +774,9 @@ class KFMD_Model:
             bpy.ops.object.duplicate()
             temp_object = scene.objects.active
             temp_object.name = "HSHP-{:02d}".format(shape_key_set.shape_key_set_id)
-            for i, vertex in enumerate(shape_key["vertices"]):
+            for i, vertex in enumerate(shape_vertices):
+                if not "translate_x" in vertex:
+                    continue
                 j = i + vertex_shift
                 old = temp_object.data.vertices[j].co
                 new = [old[0] + vertex["translate_x"],
