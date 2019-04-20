@@ -56,6 +56,10 @@ the head armature) are not supported.
 Poses are disabled for now because I never finished this feature, but I wanted
 to release a new version anyway.
 
+Materials aren't fully supported. `import_valkyria` is sometimes unable to tell if a texture should be transparent, or if it should be used as a normal map.
+
+Please [report](https://github.com/gomtuu/import_valkyria/issues/new) any problems you find with specific models.
+
 ## Changelog
 
 ### 20??-??-??: Version 0.8
