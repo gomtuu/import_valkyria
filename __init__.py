@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import os.path
-from math import radians
+from math import radians, isfinite
+from collections import defaultdict
 import bpy, mathutils
 from bpy_extras.io_utils import ImportHelper
 from . import valkyria
@@ -460,6 +461,7 @@ class HMDL_Model:
         for model in self.kfmd_models:
             model.build_materials(texture_pack)
             model.assign_materials()
+            model.assign_vertex_colors()
 
     def build_shape_keys(self, shape_key_set):
         # TODO: Is there a smarter way to determine which models use shape keys?
@@ -579,21 +581,36 @@ class KFMD_Model:
     def index_vertex_groups(self):
         # TODO: This function and assign_vertex_groups might be a little
         # excessive. Consider doing this all directly when building the mesh.
+        group_names = [("vertex_group_1", "vertex_group_weight_1"),
+                       ("vertex_group_2", "vertex_group_weight_2"),
+                       ("vertex_group_3", "vertex_group_weight_3"),
+                       ("vertex_group_4", "vertex_group_weight_4")]
         for mesh in self.meshes:
-            vertex_groups = {}
+            vertex_groups = defaultdict(list)
+
             for i, vertex in enumerate(mesh["vertices"]):
-                if "vertex_group_1" in vertex:
-                    if vertex["vertex_group_1"] not in vertex_groups:
-                        vertex_groups[vertex["vertex_group_1"]] = []
-                    vertex_groups[vertex["vertex_group_1"]].append([i, vertex["vertex_group_weight_1"]])
-                if "vertex_group_2" in vertex:
-                    if vertex["vertex_group_2"] not in vertex_groups:
-                        vertex_groups[vertex["vertex_group_2"]] = []
-                    vertex_groups[vertex["vertex_group_2"]].append([i, vertex["vertex_group_weight_2"]])
-                if "vertex_group_3" in vertex:
-                    if vertex["vertex_group_3"] not in vertex_groups:
-                        vertex_groups[vertex["vertex_group_3"]] = []
-                    vertex_groups[vertex["vertex_group_3"]].append([i, vertex["vertex_group_weight_3"]])
+                total = 0.0
+                weights = defaultdict(float) # duplicate detection
+
+                for id_name, weight_name in group_names:
+                    if id_name not in vertex:
+                        break
+
+                    group = vertex[id_name]
+
+                    # Allow implicit last weight
+                    if weight_name in vertex:
+                        weight = vertex[weight_name]
+                    else:
+                        weight = 1.0 - total
+
+                    if isfinite(weight) and weight > 0:
+                        total += weight
+                        weights[group] += weight
+
+                for group, weight in weights.items():
+                    vertex_groups[group].append([i, weight])
+
             mesh["vertex_groups"] = vertex_groups
 
     def read_data(self):
@@ -692,10 +709,14 @@ class KFMD_Model:
             name = "Material-{:04x}".format(ptr)
             material_dict["bpy"] = material = bpy.data.materials.new(name)
             material.game_settings.use_backface_culling = material_dict["use_backface_culling"]
+            material.diffuse_color = (1.0, 1.0, 1.0)
+            material.diffuse_intensity = 1.0
             material.specular_intensity = 0.0
+            material.use_vertex_color_paint = True
             if material_dict["texture0_ptr"]:
                 slot0 = material.texture_slots.add()
                 slot0.texture_coords = 'UV'
+                slot0.blend_type = 'MULTIPLY'
                 if material_dict["use_alpha"]:
                     slot0.texture = material_dict["texture0"]["bpy_alpha"]
                     slot0.use_map_alpha = True
@@ -705,7 +726,7 @@ class KFMD_Model:
             if material_dict["use_alpha"]:
                 material.use_transparency = True
                 material.transparency_method = 'Z_TRANSPARENCY'
-                material.alpha = 0.0
+                material.alpha = 1.0
             if material_dict["texture1_ptr"]:
                 slot1 = material.texture_slots.add()
                 slot1.texture_coords = 'UV'
@@ -730,26 +751,48 @@ class KFMD_Model:
                 slot2.use_rgb_to_intensity = True
 
     def assign_materials(self):
+        uv_names = [("u", "v"), ("u2", "v2"), ("u3", "v3"), ("u4", "v4"), ("u5", "v5")]
         for mesh in self.meshes:
+            vertices = mesh["vertices"]
+            if len(vertices) == 0:
+                continue
             material = self.materials[mesh["object"]["material_ptr"]]["bpy"]
             mesh["bpy"].data.materials.append(material)
-            u = ["u", "u2"]
-            v = ["v", "v2"]
-            for slot_i in range(2):
-                if hasattr(material.texture_slots[slot_i], "texture") and material.texture_slots[slot_i].texture.type == 'IMAGE':
-                    uvname = "UVMap-{}".format(slot_i)
-                    uv_texture = mesh["bpy"].data.uv_textures.new(uvname)
-                    uv_layer = mesh["bpy"].data.uv_layers[uvname]
-                    material.texture_slots[slot_i].uv_layer = uvname
-                    image = material.texture_slots[slot_i].texture.image
-                    for i, face in enumerate(mesh["faces"]):
-                        if u[slot_i] not in mesh["vertices"][face[0]]:
-                            break
-                        mesh["bpy"].data.polygons[i].use_smooth = 1
-                        uv_layer.data[i*3 + 0].uv = (mesh["vertices"][face[0]][u[slot_i]], mesh["vertices"][face[0]][v[slot_i]] + 1)
-                        uv_layer.data[i*3 + 1].uv = (mesh["vertices"][face[1]][u[slot_i]], mesh["vertices"][face[1]][v[slot_i]] + 1)
-                        uv_layer.data[i*3 + 2].uv = (mesh["vertices"][face[2]][u[slot_i]], mesh["vertices"][face[2]][v[slot_i]] + 1)
+            for slot_i, (u, v) in enumerate(uv_names):
+                if u not in vertices[0]:
+                    break
+                uvname = "UVMap-{}".format(slot_i)
+                texslot = material.texture_slots[slot_i]
+                if hasattr(texslot, "texture") and texslot.texture.type == 'IMAGE':
+                    image = texslot.texture.image
+                    texslot.uv_layer = uvname
+                else:
+                    image = None
+                uv_texture = mesh["bpy"].data.uv_textures.new(uvname)
+                uv_layer = mesh["bpy"].data.uv_layers[uvname]
+                for i, face in enumerate(mesh["faces"]):
+                    mesh["bpy"].data.polygons[i].use_smooth = 1
+                    uv_layer.data[i*3 + 0].uv = (vertices[face[0]][u], vertices[face[0]][v] + 1)
+                    uv_layer.data[i*3 + 1].uv = (vertices[face[1]][u], vertices[face[1]][v] + 1)
+                    uv_layer.data[i*3 + 2].uv = (vertices[face[2]][u], vertices[face[2]][v] + 1)
+                    if image:
                         uv_texture.data[i].image = image
+
+    def assign_vertex_colors(self):
+        color_names = [('color_r', 'color_g', 'color_b'),
+                       ('color_r2', 'color_g2', 'color_b2')]
+        for mesh in self.meshes:
+            vertices = mesh["vertices"]
+            if len(vertices) == 0:
+                continue
+            for color_i, (r, g, b) in enumerate(color_names):
+                if r not in vertices[0]:
+                    break
+                layer = mesh["bpy"].data.vertex_colors.new(name='Color-{}'.format(color_i))
+                for i, face in enumerate(mesh["faces"]):
+                    layer.data[i*3 + 0].color = (vertices[face[0]][r], vertices[face[0]][g], vertices[face[0]][b])
+                    layer.data[i*3 + 1].color = (vertices[face[1]][r], vertices[face[1]][g], vertices[face[1]][b])
+                    layer.data[i*3 + 2].color = (vertices[face[2]][r], vertices[face[2]][g], vertices[face[2]][b])
 
     def build_shape_keys(self, shape_key_set):
         scene = bpy.context.scene

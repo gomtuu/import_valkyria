@@ -958,18 +958,29 @@ class ValkKFMG(ValkFile):
                 'location_x': self.read_float_be(),
                 'location_y': self.read_float_be(),
                 'location_z': self.read_float_be(),
-                'unknown_1': self.read(4),
+                # Some kind of direction data as 4 bytes - tangent?
+                'unknown_vec': self.read(4),
                 'normal_x': self.read_half_float_be(),
                 'normal_y': self.read_half_float_be(),
                 'normal_z': self.read_half_float_be(),
-                'unknown_2': self.read(2),
-                'unknown_3': self.read(8),
+                'normal_pad': self.read(2),
+                'color_r': self.read_byte() / 255,
+                'color_g': self.read_byte() / 255,
+                'color_b': self.read_byte() / 255,
+                'color_a': self.read_byte() / 255,
+                'color_r2': self.read_byte() / 255, # evmap05_02
+                'color_g2': self.read_byte() / 255,
+                'color_b2': self.read_byte() / 255,
+                'color_a2': self.read_byte() / 255,
                 'u': self.read_half_float_be(),
                 'v': self.read_half_float_be() * -1,
                 'u2': self.read_half_float_be(),
                 'v2': self.read_half_float_be() * -1,
-                'unknown_4': self.read(4),
+                'u3': self.read_half_float_be(), # evmap18_06
+                'v3': self.read_half_float_be() * -1,
                 }
+            if vertex['normal_pad'] != b'\x00\x00':
+                print('vertex 0x2c normal_pad nonzero:', vertex)
         elif self.vc_game == 1 and bytes_per_vertex == 0x30:
             vertex = {
                 'location_x': self.read_float_be(),
@@ -977,39 +988,55 @@ class ValkKFMG(ValkFile):
                 'location_z': self.read_float_be(),
                 'vertex_group_1': self.read_byte(),
                 'vertex_group_2': self.read_byte(),
-                'vertex_group_3': self.read_byte(), # Junk?
-                'vertex_group_4': self.read_byte(), # Junk?
+                'vertex_group_3': self.read_byte(),
+                'vertex_group_pad': self.read_byte(),
                 'vertex_group_weight_1': self.read_half_float_be(),
                 'vertex_group_weight_2': self.read_half_float_be(),
-                'vertex_group_weight_3': self.read_half_float_be(),
-                'unknown_1': self.read(2),
+                'color_r': self.read_byte() / 255,
+                'color_g': self.read_byte() / 255,
+                'color_b': self.read_byte() / 255,
+                'color_a': self.read_byte() / 255,
                 'u': self.read_half_float_be(),
                 'v': self.read_half_float_be() * -1,
                 'u2': self.read_half_float_be(),
                 'v2': self.read_half_float_be() * -1,
-                'unknown_2': self.read(4),
+                'u3': self.read_half_float_be(),
+                'v3': self.read_half_float_be() * -1,
                 'normal_x': self.read_half_float_be(),
                 'normal_y': self.read_half_float_be(),
                 'normal_z': self.read_half_float_be(),
-                'unknown_2': self.read(6),
+                'normal_pad': self.read(2),
+                # Some kind of direction data as 4 bytes - tangent?
+                'unknown_vec': self.read(4),
                 }
+            if vertex['normal_pad'] != b'\x00\x00':
+                print('vertex 0x30 normal_pad nonzero:', vertex)
         elif self.vc_game == 1 and bytes_per_vertex == 0x50:
             vertex = {
                 'location_x': self.read_float_be(),
                 'location_y': self.read_float_be(),
                 'location_z': self.read_float_be(),
+                # (0.0, 1.0, 0.0) - or maybe ([0,0,0,0], 1.0, 0.0) for vertex groups?..
                 'unknown_1': self.read(4 * 3),
-                'unknown_2': self.read(4 * 2),
+                # Some kind of direction data as 4 bytes - two tangents?
+                'unknown_vec': self.read(4 * 2),
                 'normal_x': self.read_float_be(),
                 'normal_y': self.read_float_be(),
                 'normal_z': self.read_float_be(),
-                'unknown_3': self.read(4),
+                'color_r': self.read_byte() / 255, # val_mp004
+                'color_g': self.read_byte() / 255,
+                'color_b': self.read_byte() / 255,
+                'color_a': self.read_byte() / 255,
                 'u': self.read_float_be(),
                 'v': self.read_float_be() * -1,
                 'u2': self.read_float_be(),
                 'v2': self.read_float_be() * -1,
                 'unknown_4': self.read(4 * 4),
                 }
+            if vertex['unknown_1'] != b'\x00\x00\x00\x00?\x80\x00\x00\x00\x00\x00\x00':
+                print('vertex 0x50 unknown_1 nonzero:', vertex)
+            if vertex['unknown_4'] != b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00':
+                print('vertex 0x50 unknown_4 nonzero:', vertex)
         elif self.vc_game == 4:
             struct = vertex_format['struct_def']
             read_float = self.read_float_le
