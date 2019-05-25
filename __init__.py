@@ -76,6 +76,7 @@ class HTSF_Image:
         assert len(self.F.DDS) == 1
         self.dds = self.F.DDS[0]
         self.dds_data = None
+        self.is_normal_map = False
 
     def write_tmp_dds(self, dds_path):
         tmp_dds = open(dds_path, 'wb')
@@ -118,6 +119,33 @@ class HTSF_Image:
             # DDS file is probably BC7, which Blender doesn't support yet.
             self.convert_dds_to_png(dds_path)
         os.remove(dds_path)
+        self.detect_normal_map()
+
+    def detect_normal_map(self):
+        image = self.image
+        pixels = image.pixels
+
+        if image.channels != 4:
+            return
+
+        # Test 100 points on the image
+        num_pixels = int(len(pixels) / 4)
+        num_points = min(num_pixels, 100)
+
+        midvec = mathutils.Vector((0.5, 0.5, 0.5))
+        sumvec = mathutils.Vector((0, 0, 0))
+
+        for i in range(0, num_pixels, int(num_pixels / num_points)):
+            color = mathutils.Vector((pixels[i*4], pixels[i*4 + 1], pixels[i*4 + 2]))
+            normal = (color - midvec) * 2
+            # Require a valid normalized vector (allowing for precision issues e.g. in evmap04_02)
+            if normal.z <= 0 or abs(normal.length - 1.0) > 0.3:
+                return
+            sumvec += normal
+
+        # Require the average to point in the right direction
+        if sumvec.normalized().z > 0.8:
+            self.is_normal_map = True
 
     def read_data(self):
         self.dds.read_data()
@@ -695,16 +723,20 @@ class KFMD_Model:
         for ptr, texture_dict in self.textures.items():
             # TODO: Consider doing this another way.
             name = "Texture-{:04x}".format(ptr)
+            pack_image = texture_pack[texture_dict["image"]]
             texture_dict["bpy"] = bpy.data.textures.new(name, type = 'IMAGE')
-            texture_dict["bpy"].image = texture_pack[texture_dict["image"]].image
+            texture_dict["bpy"].image = pack_image.image
             texture_dict["bpy"].use_alpha = False
-            texture_dict["bpy_alpha"] = bpy.data.textures.new(name + "-alpha", type = 'IMAGE')
-            texture_dict["bpy_alpha"].image = texture_pack[texture_dict["image"]].image
-            texture_dict["bpy_alpha"].use_alpha = True
-            texture_dict["bpy_normal"] = bpy.data.textures.new(name + "-normal", type = 'IMAGE')
-            texture_dict["bpy_normal"].image = texture_pack[texture_dict["image"]].image
-            texture_dict["bpy_normal"].use_alpha = False
-            texture_dict["bpy_normal"].use_normal_map = True
+            if pack_image.is_normal_map:
+                texture_dict["bpy_normal"] = bpy.data.textures.new(name + "-normal", type = 'IMAGE')
+                texture_dict["bpy_normal"].image = pack_image.image
+                texture_dict["bpy_normal"].use_alpha = False
+                texture_dict["bpy_normal"].use_normal_map = True
+                pack_image.image.use_alpha = False
+            else:
+                texture_dict["bpy_alpha"] = bpy.data.textures.new(name + "-alpha", type = 'IMAGE')
+                texture_dict["bpy_alpha"].image = pack_image.image
+                texture_dict["bpy_alpha"].use_alpha = True
         for ptr, material_dict in self.materials.items():
             name = "Material-{:04x}".format(ptr)
             material_dict["bpy"] = material = bpy.data.materials.new(name)
@@ -717,12 +749,14 @@ class KFMD_Model:
                 slot0 = material.texture_slots.add()
                 slot0.texture_coords = 'UV'
                 slot0.blend_type = 'MULTIPLY'
-                if material_dict["use_alpha"]:
+                if material_dict["use_alpha"] and "bpy_alpha" in material_dict["texture0"]:
                     slot0.texture = material_dict["texture0"]["bpy_alpha"]
                     slot0.use_map_alpha = True
                     slot0.alpha_factor = 1.0
                 else:
                     slot0.texture = material_dict["texture0"]["bpy"]
+                if "bpy_normal" in material_dict["texture0"]:
+                    print('Did not expect main texture {} to be a normal map in {}'.format(slot0.texture.name, name))
             if material_dict["use_alpha"]:
                 material.use_transparency = True
                 material.transparency_method = 'Z_TRANSPARENCY'
@@ -730,12 +764,16 @@ class KFMD_Model:
             if material_dict["texture1_ptr"]:
                 slot1 = material.texture_slots.add()
                 slot1.texture_coords = 'UV'
-                if material_dict["use_normal"]:
+                if "bpy_normal" in material_dict["texture1"]:
                     slot1.texture = material_dict["texture1"]["bpy_normal"]
                     slot1.use_map_color_diffuse = False
                     slot1.use_map_normal = True
+                    if not material_dict["use_normal"]:
+                        print('Did not expect {} to be a normal map in {}'.format(slot1.texture.name, name))
                 else:
                     slot1.texture = material_dict["texture1"]["bpy_alpha"]
+                    if material_dict["use_normal"]:
+                        print('Expected {} to be a valid normal map in {}'.format(slot1.texture.name, name))
             if material_dict["use_backface_culling"]:
                 slot2 = material.texture_slots.add()
                 if self.oneside is None:
