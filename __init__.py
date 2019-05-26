@@ -487,9 +487,9 @@ class HMDL_Model:
 
     def assign_materials(self, texture_pack):
         for model in self.kfmd_models:
+            model.assign_vertex_colors()
             model.build_materials(texture_pack)
             model.assign_materials()
-            model.assign_vertex_colors()
 
     def build_shape_keys(self, shape_key_set):
         # TODO: Is there a smarter way to determine which models use shape keys?
@@ -749,7 +749,7 @@ class KFMD_Model:
                 texture_dict["bpy_alpha"].use_alpha = True
         for ptr, material_dict in self.materials.items():
             name = "Material-{:04x}".format(ptr)
-            material_dict["bpy"] = material = bpy.data.materials.new(name)
+            material = bpy.data.materials.new(name)
             material.game_settings.use_backface_culling = material_dict["use_backface_culling"]
             material.diffuse_color = (1.0, 1.0, 1.0)
             material.diffuse_intensity = 1.0
@@ -796,6 +796,15 @@ class KFMD_Model:
                 slot2.mapping_z = 'NONE'
                 slot2.default_value = 0.0
                 slot2.use_rgb_to_intensity = True
+            if material_dict.get('needs_vertex_colors'):
+                if material_dict.get('needs_no_vertex_colors'):
+                    material_dict["bpy"] = material
+                    material = material.copy()
+                    material.name = material_dict["bpy"].name + '-VColor'
+                material_dict["bpy_vcolor"] = material
+                material_dict["bpy_vcolor"].use_vertex_color_paint = True
+            else:
+                material_dict["bpy"] = material
 
     def assign_materials(self):
         uv_names = [("u", "v"), ("u2", "v2"), ("u3", "v3"), ("u4", "v4"), ("u5", "v5")]
@@ -803,7 +812,11 @@ class KFMD_Model:
             vertices = mesh["vertices"]
             if len(vertices) == 0:
                 continue
-            material = self.materials[mesh["object"]["material_ptr"]]["bpy"]
+            material_dict = self.materials[mesh["object"]["material_ptr"]]
+            if mesh['has_vertex_colors']:
+                material = material_dict["bpy_vcolor"]
+            else:
+                material = material_dict["bpy"]
             mesh["bpy"].data.materials.append(material)
             for slot_i, (u, v) in enumerate(uv_names):
                 if u not in vertices[0]:
@@ -836,10 +849,10 @@ class KFMD_Model:
                        ('Color-1', 'color_r2', 'color_g2', 'color_b2'),
                        ('Alpha-1', 'color_a2', 'color_a2', 'color_a2')]
         for mesh in self.meshes:
+            mesh['has_vertex_colors'] = False
             vertices = mesh["vertices"]
             if len(vertices) == 0:
                 continue
-            material = self.materials[mesh["object"]["material_ptr"]]["bpy"]
             for color_i, (name, r, g, b) in enumerate(color_names):
                 if r not in vertices[0]:
                     break
@@ -848,12 +861,17 @@ class KFMD_Model:
                         break
                 else:
                     continue
-                material.use_vertex_color_paint = True
+                mesh['has_vertex_colors'] = True
                 layer = mesh["bpy"].data.vertex_colors.new(name=name)
                 for i, face in enumerate(mesh["faces"]):
                     layer.data[i*3 + 0].color = (vertices[face[0]][r], vertices[face[0]][g], vertices[face[0]][b])
                     layer.data[i*3 + 1].color = (vertices[face[1]][r], vertices[face[1]][g], vertices[face[1]][b])
                     layer.data[i*3 + 2].color = (vertices[face[2]][r], vertices[face[2]][g], vertices[face[2]][b])
+            material = self.materials[mesh["object"]["material_ptr"]]
+            if mesh['has_vertex_colors']:
+                material['needs_vertex_colors'] = True
+            else:
+                material['needs_no_vertex_colors'] = True
 
     def build_shape_keys(self, shape_key_set):
         scene = bpy.context.scene
