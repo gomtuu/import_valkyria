@@ -744,7 +744,6 @@ class KFMD_Model:
             material.diffuse_color = (1.0, 1.0, 1.0)
             material.diffuse_intensity = 1.0
             material.specular_intensity = 0.0
-            material.use_vertex_color_paint = True
             if material_dict["texture0_ptr"]:
                 slot0 = material.texture_slots.add()
                 slot0.texture_coords = 'UV'
@@ -806,6 +805,11 @@ class KFMD_Model:
                     texslot.uv_layer = uvname
                 else:
                     image = None
+                    for vert in vertices:
+                        if vert[u] != 0 or vert[v] != 0:
+                            break
+                    else:
+                        continue
                 uv_texture = mesh["bpy"].data.uv_textures.new(uvname)
                 uv_layer = mesh["bpy"].data.uv_layers[uvname]
                 for i, face in enumerate(mesh["faces"]):
@@ -817,16 +821,25 @@ class KFMD_Model:
                         uv_texture.data[i].image = image
 
     def assign_vertex_colors(self):
-        color_names = [('color_r', 'color_g', 'color_b'),
-                       ('color_r2', 'color_g2', 'color_b2')]
+        color_names = [('Color-0', 'color_r', 'color_g', 'color_b'),
+                       ('Alpha-0', 'color_a', 'color_a', 'color_a'),
+                       ('Color-1', 'color_r2', 'color_g2', 'color_b2'),
+                       ('Alpha-1', 'color_a2', 'color_a2', 'color_a2')]
         for mesh in self.meshes:
             vertices = mesh["vertices"]
             if len(vertices) == 0:
                 continue
-            for color_i, (r, g, b) in enumerate(color_names):
+            material = self.materials[mesh["object"]["material_ptr"]]["bpy"]
+            for color_i, (name, r, g, b) in enumerate(color_names):
                 if r not in vertices[0]:
                     break
-                layer = mesh["bpy"].data.vertex_colors.new(name='Color-{}'.format(color_i))
+                for vert in vertices:
+                    if vert[r] != 1 or vert[g] != 1 or vert[b] != 1:
+                        break
+                else:
+                    continue
+                material.use_vertex_color_paint = True
+                layer = mesh["bpy"].data.vertex_colors.new(name=name)
                 for i, face in enumerate(mesh["faces"]):
                     layer.data[i*3 + 0].color = (vertices[face[0]][r], vertices[face[0]][g], vertices[face[0]][b])
                     layer.data[i*3 + 1].color = (vertices[face[1]][r], vertices[face[1]][g], vertices[face[1]][b])
