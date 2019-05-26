@@ -516,6 +516,7 @@ class KFMD_Model:
         scene.objects.link(armature)
         scene.objects.active = armature
         armature.select = True
+        armature.data.draw_type = 'STICK'
         bpy.ops.object.mode_set(mode = 'EDIT')
         for bone in self.bones:
             if 'deform_id' in bone:
@@ -531,19 +532,27 @@ class KFMD_Model:
                 bone["accum_matrix"] = bone["matrix"]
                 bone["head"] = mathutils.Vector(bone["location"])
         for bone in self.bones:
-            if bone["fav_child"]:
-                bone["tail"] = bone["fav_child"]["head"]
+            # Default bone orientation and size
+            if bone["parent"]:
+                length = min(1, (bone["parent"]["tail"] - bone["parent"]["head"]).length)
             else:
-                bone["tail"] = bone["accum_matrix"] * mathutils.Vector((0.5, 0, 0))
-            if bone["object_ptr1"] and bone["parent"]:
-                bone["tail"] = bone["head"]
-                bone["head"] = bone["parent"]["head"]
+                length = 5
+            bone["tail"] = bone["head"] + bone["accum_matrix"].col[0].normalized().resized(3) * length
+            # Point the bone at the average position of its children if they are in a common direction
+            child_vecs = [ child["head"] - bone["head"] for child in bone["children"] if (child["head"] - bone["head"]).length > 1e-4 ]
+            if len(child_vecs) > 0:
+                avg_vec = sum(child_vecs, mathutils.Vector((0,0,0))) / len(child_vecs)
+                avg_dir = avg_vec.normalized()
+                if all(vec.normalized().dot(avg_dir) > 0.8 for vec in child_vecs):
+                    bone["tail"] = bone["head"] + avg_vec
+            # Create and place the bone
             bone["edit_bpy"] = armature.data.edit_bones.new(bone["name"])
             bone["edit_bpy"].use_connect = False
             if bone["parent"]:
                 bone["edit_bpy"].parent = bone["parent"]["edit_bpy"]
             bone["edit_bpy"].head = bone["head"]
             bone["edit_bpy"].tail = bone["tail"]
+            #print(bone["edit_bpy"], {k:v for k,v in bone.items() if k not in {'parent', 'children', 'matrix', 'accum_matrix', 'edit_bpy'}})
         bpy.ops.object.mode_set(mode = 'OBJECT')
         return armature
 
@@ -573,18 +582,19 @@ class KFMD_Model:
             # Move accessories to proper places
             parent_bone_id = mesh_dict["object"]["parent_bone_id"]
             parent_bone = self.bones[parent_bone_id]
-            if parent_bone["name"] in self.armature.data.bones:
+            # Parent meshes with vertex groups to the armature, and others to bones or the object
+            if mesh_dict["object"]["parent_is_armature"]:
+                mesh_dict["bpy"].parent_type = 'ARMATURE'
+                mesh_dict["bpy"].matrix_parent_inverse = parent_bone["accum_matrix"]
+            elif parent_bone["name"] in self.armature.data.bones:
                 bone = self.armature.data.bones[parent_bone["name"]]
                 bone_matrix = bone.matrix_local * mathutils.Matrix.Translation((0,bone.length,0))
                 mesh_dict["bpy"].parent_type = 'BONE'
                 mesh_dict["bpy"].parent_bone = parent_bone["name"]
                 mesh_dict["bpy"].matrix_parent_inverse = bone_matrix.inverted() * parent_bone["accum_matrix"]
-            # Reparent meshes that have vertex groups back to the armature
-            if mesh_dict["object"]["parent_is_armature"]:
-                bpy.ops.object.select_all(action='DESELECT')
-                mesh_dict["bpy"].select = True
-                bpy.context.scene.objects.active = self.armature
-                bpy.ops.object.parent_set(type='ARMATURE', keep_transform=True)
+            else:
+                mesh_dict["bpy"].parent_type = 'OBJECT'
+                mesh_dict["bpy"].matrix_parent_inverse = parent_bone["accum_matrix"]
 
     def assign_vertex_groups(self):
         for mesh in self.meshes:

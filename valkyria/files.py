@@ -616,18 +616,18 @@ class ValkKFMS(ValkFile):
             bone = {}
             if self.vc_game == 1:
                 bone['ptr'] = self.tell()
-                self.read(4)
+                bone['unknown_1'] = self.read(4)
                 bone['id'] = self.read_word_be()
                 bone['parent_id'] = self.read_word_be()
                 bone['dim1'] = self.read_float_be()
                 bone['dim2'] = self.read_float_be()
                 bone['parent_ptr'] = self.read_long_be()
-                bone['fav_child_ptr'] = self.read_long_be()
-                bone['unk_bone_ptr2'] = self.read_long_be()
+                bone['first_child_ptr'] = self.read_long_be()
+                bone['next_sibling_ptr'] = self.read_long_be()
                 bone['bound_box_ptr'] = self.read_long_be()
-                self.read(2)
+                bone['unknown_2'] = self.read(2)
                 bone['object_count'] = self.read_word_be()
-                self.read(4)
+                bone['unknown_3'] = self.read(4)
                 bone['deform_count'] = self.read_word_be() # First bone only
                 bone['is_deform'] = self.read_word_be()
                 bone['object_ptr1'] = self.read_long_be()
@@ -635,7 +635,7 @@ class ValkKFMS(ValkFile):
                 bone['object_ptr3'] = self.read_long_be()
                 bone['deform_ids_ptr'] = self.read_long_be() # First bone only
                 bone['deform_ptr'] = self.read_long_be()
-                self.read(32)
+                bone['unknown_4'] = self.read(32)
             elif self.vc_game == 4:
                 bone['ptr'] = self.tell() - 0x20
                 self.read(4)
@@ -644,8 +644,8 @@ class ValkKFMS(ValkFile):
                 bone['dim1'] = self.read_float_le()
                 bone['dim2'] = self.read_float_le()
                 bone['parent_ptr'] = self.read_long_long_le()
-                bone['fav_child_ptr'] = self.read_long_long_le()
-                bone['unk_bone_ptr2'] = self.read_long_long_le()
+                bone['first_child_ptr'] = self.read_long_long_le()
+                bone['next_sibling_ptr'] = self.read_long_long_le()
                 bone['bound_box_ptr'] = self.read_long_long_le()
                 self.read(4) # 0x20202020
                 self.read(2)
@@ -666,14 +666,11 @@ class ValkKFMS(ValkFile):
         for bone in self.bones:
             bone['parent'] = None
             bone['children'] = []
-            bone['fav_child'] = None
             if bone['parent_id'] == bone['id']:
                 continue
             parent_bone = self.bones[bone['parent_id']]
             bone['parent'] = parent_bone
             parent_bone['children'].append(bone)
-            if bone['ptr'] == parent_bone['fav_child_ptr']:
-                parent_bone['fav_child'] = bone
 
     def read_bone_xforms(self):
         self.follow_ptr(self.bone_xform_list_ptr)
