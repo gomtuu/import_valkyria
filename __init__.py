@@ -69,6 +69,44 @@ class HTEX_Pack:
             image.build_blender()
         self.blender_built = True
 
+    def build_raw_texture_planes(self):
+        obj = None
+
+        for i, image in enumerate(self.htsf_images):
+            texture = bpy.data.textures.new(type='IMAGE', name=image.filename)
+            texture.image = image.image
+            texture.use_alpha = not image.is_normal_map
+
+            material = bpy.data.materials.new(name=image.filename)
+            material.use_shadeless = True
+            material.diffuse_color = (1, 1, 1)
+            slot = material.texture_slots.add()
+            slot.texture_coords = 'UV'
+            slot.texture = texture
+
+            if texture.use_alpha:
+                slot.use_map_alpha = True
+                slot.alpha_factor = 1.0
+                material.use_transparency = True
+                material.transparency_method = 'Z_TRANSPARENCY'
+                material.alpha = 0.1
+
+            if obj is None:
+                bpy.ops.mesh.primitive_plane_add()
+                bpy.ops.mesh.uv_texture_add()
+                bpy.ops.object.material_slot_add()
+
+                obj = bpy.context.active_object
+                obj.name = image.filename
+            else:
+                obj = bpy.data.objects.new(object_data=obj.data, name=image.filename)
+                bpy.context.scene.objects.link(obj)
+
+            obj.location = i * mathutils.Vector((2,0,0))
+            mslot = obj.material_slots[0]
+            mslot.link = 'OBJECT'
+            mslot.material = material
+
 
 class HTSF_Image:
     def __init__(self, source_file):
@@ -1020,6 +1058,15 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
             model = ABRS_Model(vfile)
         elif vfile.ftype == 'MXEN':
             model = MXEN_Model(vfile)
+        elif vfile.ftype == 'HTEX':
+            pack = HTEX_Pack(vfile, 0)
+            pack.read_data()
+            pack.build_blender()
+            pack.build_raw_texture_planes()
+            return
+        else:
+            self.report({'ERROR'}, "Unknown module file type: "+vfile.ftype)
+            return
         self.valk_scene = ValkyriaScene(model, filename)
         try:
             self.valk_scene.read_data()
