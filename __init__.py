@@ -336,6 +336,7 @@ class ABRS_Model:
     def read_data(self):
         texture_pack = None
         htex_count = 0
+        self.first_texture_pack = None
         for inner_file in self.F.inner_files:
             if inner_file.ftype == 'HMDL':
                 model = self.add_model(inner_file)
@@ -343,15 +344,18 @@ class ABRS_Model:
                 texture_pack = Texture_Pack()
                 self.texture_packs.append(texture_pack)
             elif inner_file.ftype == 'HTEX':
-                if texture_pack:
-                    htex_pack = HTEX_Pack(inner_file, htex_count)
-                    htex_pack.read_data()
-                    for htsf in htex_pack.htsf_images:
-                        texture_pack.htsf_images.append(htsf)
+                if not texture_pack:
+                    texture_pack = self.first_texture_pack = Texture_Pack()
+                htex_pack = HTEX_Pack(inner_file, htex_count)
+                htex_pack.read_data()
+                for htsf in htex_pack.htsf_images:
+                    texture_pack.htsf_images.append(htsf)
                 htex_count += 1
         assert len(self.texture_packs) == len(self.hmdl_models)
 
     def build_blender(self):
+        if self.first_texture_pack:
+            self.first_texture_pack.build_blender()
         for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
             texture_pack.build_blender()
             model.build_blender()
@@ -771,19 +775,23 @@ class KFMD_Model:
         for ptr, texture_dict in self.textures.items():
             # TODO: Consider doing this another way.
             name = "Texture-{:04x}".format(ptr)
-            pack_image = texture_pack[texture_dict["image"]]
+            if 0 <= texture_dict["image"] < len(texture_pack):
+                pack_image = texture_pack[texture_dict["image"]]
+                image = pack_image.image
+            else:
+                pack_image = image = None
             texture_dict["bpy"] = bpy.data.textures.new(name, type = 'IMAGE')
-            texture_dict["bpy"].image = pack_image.image
+            texture_dict["bpy"].image = image
             texture_dict["bpy"].use_alpha = False
-            if pack_image.is_normal_map:
+            if pack_image and pack_image.is_normal_map:
                 texture_dict["bpy_normal"] = bpy.data.textures.new(name + "-normal", type = 'IMAGE')
-                texture_dict["bpy_normal"].image = pack_image.image
+                texture_dict["bpy_normal"].image = image
                 texture_dict["bpy_normal"].use_alpha = False
                 texture_dict["bpy_normal"].use_normal_map = True
                 pack_image.image.use_alpha = False
             else:
                 texture_dict["bpy_alpha"] = bpy.data.textures.new(name + "-alpha", type = 'IMAGE')
-                texture_dict["bpy_alpha"].image = pack_image.image
+                texture_dict["bpy_alpha"].image = image
                 texture_dict["bpy_alpha"].use_alpha = True
         for ptr, material_dict in self.materials.items():
             name = "Material-{:04x}".format(ptr)

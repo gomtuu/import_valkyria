@@ -16,11 +16,14 @@ class ValkFile:
         self.read_meta()
 
     def seek(self, pos, relative=False):
-        if DEBUG == 2:
-            print("Seeking to 0x{:x}".format(pos), relative)
         if relative:
+            if DEBUG >= 2:
+                print("Seeking relative {:#x}".format(pos))
             return self.F.seek(pos, relative) - self.offset
-        return self.F.seek(self.offset + pos) - self.offset
+        else:
+            if DEBUG >= 2:
+                print("Seeking to {:#x} + {:#x}".format(pos, self.offset))
+            return self.F.seek(self.offset + pos) - self.offset
 
     def follow_ptr(self, pointer):
         if hasattr(self, 'vc_game') and self.vc_game == 4:
@@ -31,8 +34,8 @@ class ValkFile:
         return self.F.tell() - self.offset
 
     def read(self, size):
-        if DEBUG == 2:
-            print("Reading 0x{:x} bytes".format(size))
+        if DEBUG >= 3:
+            print("Reading {:#x} bytes".format(size))
         return self.F.read(size)
 
     def read_and_unpack(self, size, unpack):
@@ -52,6 +55,9 @@ class ValkFile:
     def read_word_be(self):
         return self.read_and_unpack(2, '>H')
 
+    def read_word_auto(self):
+        return self.read_and_unpack(2, self.endianness + 'H')
+
     def read_word_le_signed(self):
         return self.read_and_unpack(2, '<h')
 
@@ -64,15 +70,29 @@ class ValkFile:
     def read_long_be(self):
         return self.read_and_unpack(4, '>I')
 
+    def read_long_auto(self):
+        return self.read_and_unpack(4, self.endianness + 'I')
+
     def read_float_le(self):
         return self.read_and_unpack(4, '<f')
 
     def read_float_be(self):
         return self.read_and_unpack(4, '>f')
 
+    def read_float_auto(self):
+        return self.read_and_unpack(4, self.endianness + 'f')
+
+    def read_half_float_le(self):
+        return self.__decode_half_float(self.read_and_unpack(2, '<h'))
+
     def read_half_float_be(self):
+        return self.__decode_half_float(self.read_and_unpack(2, '>h'))
+
+    def read_half_float_auto(self):
+        return self.__decode_half_float(self.read_and_unpack(2, self.endianness + 'h'))
+
+    def __decode_half_float(self, word):
         # http://davidejones.com/blog/1413-python-precision-floating-point/
-        word = self.read_and_unpack(2, '>h')
         sign = (word >> 15) & 0x0001
         exponent = (word >> 10) & 0x001f
         fraction = word & 0x03ff
@@ -479,6 +499,7 @@ class ValkKFMD(ValkFile):
             kfmg.read(4)
             kfmg.vertex_ptr = kfmg.read_long_le()
         kfmg.vc_game = kfms.vc_game
+        kfmg.endianness = kfms.endianness
         self.meshes = kfms.meshes
         for mesh in self.meshes:
             if kfms.vc_game == 1:
@@ -507,7 +528,8 @@ class ValkKFMS(ValkFile):
             self.vc_game = 4
             self.endianness = '<'
         elif unk1[0] == 1:
-            self.vc_game = 2
+            print('Little-Endian VC1 model found.')
+            self.vc_game = 1
             self.endianness = '<'
         elif unk1[3] == 1:
             self.vc_game = 1
@@ -538,34 +560,34 @@ class ValkKFMS(ValkFile):
             self.texture_list_ptr = self.read_long_long_le()
             self.mesh_info_ptr = self.read_long_long_le()
         else:
-            self.bone_count = self.read_long_be()
-            self.deform_count = self.read_long_be()
+            self.bone_count = self.read_long_auto()
+            self.deform_count = self.read_long_auto()
             self.read(4)
-            self.model_height = self.read_float_be()
-            self.bone_list_ptr = self.read_long_be()
+            self.model_height = self.read_float_auto()
+            self.bone_list_ptr = self.read_long_auto()
             self.read_long_be() # pointer to extra per-bone data
-            self.bone_xform_list_ptr = self.read_long_be()
-            self.material_count = self.read_long_be()
-            self.material_list_ptr = self.read_long_be()
-            self.object_count = self.read_long_be()
-            self.object_list_ptr = self.read_long_be()
-            self.mesh_count = self.read_long_be()
-            self.mesh_list_ptr = self.read_long_be()
+            self.bone_xform_list_ptr = self.read_long_auto()
+            self.material_count = self.read_long_auto()
+            self.material_list_ptr = self.read_long_auto()
+            self.object_count = self.read_long_auto()
+            self.object_list_ptr = self.read_long_auto()
+            self.mesh_count = self.read_long_auto()
+            self.mesh_list_ptr = self.read_long_auto()
             self.read(4)
             self.read(4)
-            self.texture_count = self.read_long_be()
-            self.texture_list_ptr = self.read_long_be()
-            self.read_word_be() # These 3 words are counts that correspond
-            self.read_word_be() # to the next group of 3 longs, which are
-            self.read_word_be() # pointers. Purpose is unknown.
+            self.texture_count = self.read_long_auto()
+            self.texture_list_ptr = self.read_long_auto()
+            self.read_word_auto() # These 3 words are counts that correspond
+            self.read_word_auto() # to the next group of 3 longs, which are
+            self.read_word_auto() # pointers. Purpose is unknown.
             self.read(2)
-            self.read_long_be()
-            self.read_long_be()
-            self.read_long_be()
+            self.read_long_auto()
+            self.read_long_auto()
+            self.read_long_auto()
             self.read(4)
             self.vertex_format_count = 1
             self.vertex_formats = []
-            self.mesh_info_ptr = self.read_long_be()
+            self.mesh_info_ptr = self.read_long_auto()
 
     def read_kfmg_info(self):
         self.follow_ptr(self.mesh_info_ptr)
@@ -600,11 +622,11 @@ class ValkKFMS(ValkFile):
         else:
             self.read(4)
             self.vertex_formats.append({
-                'bytes_per_vertex': self.read_long_be(),
-                'face_ptr': self.read_long_be(),
-                'face_count': self.read_long_be(),
-                'vertex_ptr': self.read_long_be(),
-                'vertex_count': self.read_long_be(),
+                'bytes_per_vertex': self.read_long_auto(),
+                'face_ptr': self.read_long_auto(),
+                'face_count': self.read_long_auto(),
+                'vertex_ptr': self.read_long_auto(),
+                'vertex_count': self.read_long_auto(),
                 })
             self.read(4)
             self.read(4)
@@ -617,24 +639,24 @@ class ValkKFMS(ValkFile):
             if self.vc_game == 1:
                 bone['ptr'] = self.tell()
                 bone['unknown_1'] = self.read(4)
-                bone['id'] = self.read_word_be()
-                bone['parent_id'] = self.read_word_be()
-                bone['dim1'] = self.read_float_be()
-                bone['dim2'] = self.read_float_be()
-                bone['parent_ptr'] = self.read_long_be()
-                bone['first_child_ptr'] = self.read_long_be()
-                bone['next_sibling_ptr'] = self.read_long_be()
-                bone['bound_box_ptr'] = self.read_long_be()
+                bone['id'] = self.read_word_auto()
+                bone['parent_id'] = self.read_word_auto()
+                bone['dim1'] = self.read_float_auto()
+                bone['dim2'] = self.read_float_auto()
+                bone['parent_ptr'] = self.read_long_auto()
+                bone['first_child_ptr'] = self.read_long_auto()
+                bone['next_sibling_ptr'] = self.read_long_auto()
+                bone['bound_box_ptr'] = self.read_long_auto()
                 bone['unknown_2'] = self.read(2)
-                bone['object_count'] = self.read_word_be()
+                bone['object_count'] = self.read_word_auto()
                 bone['unknown_3'] = self.read(4)
-                bone['deform_count'] = self.read_word_be() # First bone only
-                bone['is_deform'] = self.read_word_be()
-                bone['object_ptr1'] = self.read_long_be()
-                bone['object_ptr2'] = self.read_long_be()
-                bone['object_ptr3'] = self.read_long_be()
-                bone['deform_ids_ptr'] = self.read_long_be() # First bone only
-                bone['deform_ptr'] = self.read_long_be()
+                bone['deform_count'] = self.read_word_auto() # First bone only
+                bone['is_deform'] = self.read_word_auto()
+                bone['object_ptr1'] = self.read_long_auto()
+                bone['object_ptr2'] = self.read_long_auto()
+                bone['object_ptr3'] = self.read_long_auto()
+                bone['deform_ids_ptr'] = self.read_long_auto() # First bone only
+                bone['deform_ptr'] = self.read_long_auto()
                 bone['unknown_4'] = self.read(32)
             elif self.vc_game == 4:
                 bone['ptr'] = self.tell() - 0x20
@@ -675,7 +697,7 @@ class ValkKFMS(ValkFile):
     def read_bone_xforms(self):
         self.follow_ptr(self.bone_xform_list_ptr)
         if self.vc_game == 1:
-            read_float = self.read_float_be
+            read_float = self.read_float_auto
         elif self.vc_game == 4:
             read_float = self.read_float_le
         for bone in self.bones:
@@ -695,8 +717,8 @@ class ValkKFMS(ValkFile):
                 continue
             self.follow_ptr(bone['deform_ptr'])
             if self.vc_game == 1:
-                bone['matrix_ptr'] = self.read_long_be()
-                bone['deform_id'] = self.read_long_be()
+                bone['matrix_ptr'] = self.read_long_auto()
+                bone['deform_id'] = self.read_long_auto()
             elif self.vc_game == 4:
                 bone['matrix_ptr'] = self.read_long_long_le()
                 self.read(2) # unknown
@@ -706,7 +728,7 @@ class ValkKFMS(ValkFile):
 
     def read_bone_matrices(self):
         if self.vc_game == 1:
-            read_float = self.read_float_be
+            read_float = self.read_float_auto
         elif self.vc_game == 4:
             read_float = self.read_float_le
         for bone in self.bones:
@@ -733,13 +755,13 @@ class ValkKFMS(ValkFile):
             if self.vc_game == 1:
                 material['ptr'] = self.tell()
                 material['unk1'] = self.read(4)
-                material['flags'] = self.read_long_be()
+                material['flags'] = self.read_long_auto()
                 material['use_normal'] = bool(material['flags'] & 0x12) # 0x10 and 0x2 both seem to indicate normal maps
                 material['use_alpha'] = bool(material['flags'] & 0x40)
                 material['use_backface_culling'] = bool(material['flags'] & 0x400)
                 material['unk2'] = self.read(8)
-                material['texture0_ptr'] = self.read_long_be()
-                material['texture1_ptr'] = self.read_long_be()
+                material['texture0_ptr'] = self.read_long_auto()
+                material['texture1_ptr'] = self.read_long_auto()
             elif self.vc_game == 4:
                 material['ptr'] = self.tell() - 0x20
                 material['flags1'] = self.read_long_le()
@@ -764,15 +786,18 @@ class ValkKFMS(ValkFile):
         for i in range(self.object_count):
             if self.vc_game == 1:
                 object_row = {
-                    'id': self.read_long_be(),
-                    'parent_is_armature': self.read_word_be(),
-                    'parent_bone_id': self.read_word_be(),
-                    'material_ptr': self.read_long_be(),
-                    'mesh_count': self.read_long_be(),
-                    'mesh_list_ptr': self.read_long_be(),
-                    'kfmg_vertex_offset': self.read_long_be(),
-                    'vertex_count': self.read_word_be(),
+                    'id': self.read_long_auto(),
+                    'parent_is_armature': self.read_word_auto(),
+                    'parent_bone_id': self.read_word_auto(),
+                    'material_ptr': self.read_long_auto(),
+                    'u01': self.read_word_auto(),
+                    'mesh_count': self.read_word_auto(),
+                    'mesh_list_ptr': self.read_long_auto(),
+                    'kfmg_vertex_offset': self.read_long_auto(),
+                    'vertex_count': self.read_word_auto(),
                     }
+                if object_row['u01'] != 0:
+                    print('u01 nonzero', object_row)
                 self.read(6)
             elif self.vc_game == 4:
                 object_row = {
@@ -798,17 +823,17 @@ class ValkKFMS(ValkFile):
             for i in range(obj['mesh_count']):
                 if self.vc_game == 1:
                     mesh_row = {
-                        'vertex_group_count': self.read_word_be(),
-                        'u01': self.read_word_be(),
-                        'u02': self.read_word_be(),
-                        'vertex_count': self.read_word_be(),
-                        'faces_word_count': self.read_word_be(),
-                        'n01': self.read_long_be(),
-                        'vertex_group_map_ptr': self.read_word_be(),
-                        'first_vertex': self.read_long_be(),
-                        'faces_first_word': self.read_long_be(),
-                        'first_vertex_id': self.read_long_be(),
-                        'n02': self.read_long_be(),
+                        'vertex_group_count': self.read_word_auto(),
+                        'u01': self.read_word_auto(),
+                        'u02': self.read_word_auto(),
+                        'vertex_count': self.read_word_auto(),
+                        'faces_word_count': self.read_word_auto(),
+                        'n01': self.read_long_auto(),
+                        'vertex_group_map_ptr': self.read_word_auto(),
+                        'first_vertex': self.read_long_auto(),
+                        'faces_first_word': self.read_long_auto(),
+                        'first_vertex_id': self.read_long_auto(),
+                        'n02': self.read_long_auto(),
                         'object': obj,
                         }
                 elif self.vc_game == 4:
@@ -834,8 +859,8 @@ class ValkKFMS(ValkFile):
             self.follow_ptr(mesh['vertex_group_map_ptr'])
             for i in range(mesh['vertex_group_count']):
                 if self.vc_game == 1:
-                    global_id = self.read_word_be()
-                    local_id = self.read_word_be()
+                    global_id = self.read_word_auto()
+                    local_id = self.read_word_auto()
                 elif self.vc_game == 4:
                     global_id = self.read_word_le()
                     local_id = self.read_word_le()
@@ -846,7 +871,7 @@ class ValkKFMS(ValkFile):
         self.textures = {}
         if self.vc_game == 1:
             item_length = 0x40
-            read_image = self.read_word_be
+            read_image = self.read_word_auto
         elif self.vc_game == 4:
             item_length = 0x60
             read_image = self.read_word_le
@@ -923,7 +948,7 @@ class ValkKFMG(ValkFile):
         end_ptr = self.tell() + word_count * 2
         start_direction = 1
         if self.vc_game == 1:
-            read_vertex_id = self.read_word_be
+            read_vertex_id = self.read_word_auto
         elif self.vc_game == 4:
             read_vertex_id = self.read_word_le
         v1 = read_vertex_id()
@@ -952,14 +977,14 @@ class ValkKFMG(ValkFile):
         bytes_per_vertex = vertex_format['bytes_per_vertex']
         if self.vc_game == 1 and bytes_per_vertex == 0x2c:
             vertex = {
-                'location_x': self.read_float_be(),
-                'location_y': self.read_float_be(),
-                'location_z': self.read_float_be(),
+                'location_x': self.read_float_auto(),
+                'location_y': self.read_float_auto(),
+                'location_z': self.read_float_auto(),
                 # Some kind of direction data as 4 bytes - tangent?
                 'unknown_vec': self.read(4),
-                'normal_x': self.read_half_float_be(),
-                'normal_y': self.read_half_float_be(),
-                'normal_z': self.read_half_float_be(),
+                'normal_x': self.read_half_float_auto(),
+                'normal_y': self.read_half_float_auto(),
+                'normal_z': self.read_half_float_auto(),
                 'normal_pad': self.read(2),
                 'color_r': self.read_byte() / 255,
                 'color_g': self.read_byte() / 255,
@@ -969,39 +994,39 @@ class ValkKFMG(ValkFile):
                 'color_g2': self.read_byte() / 255,
                 'color_b2': self.read_byte() / 255,
                 'color_a2': self.read_byte() / 255,
-                'u': self.read_half_float_be(),
-                'v': self.read_half_float_be() * -1,
-                'u2': self.read_half_float_be(),
-                'v2': self.read_half_float_be() * -1,
-                'u3': self.read_half_float_be(), # evmap18_06
-                'v3': self.read_half_float_be() * -1,
+                'u': self.read_half_float_auto(),
+                'v': self.read_half_float_auto() * -1,
+                'u2': self.read_half_float_auto(),
+                'v2': self.read_half_float_auto() * -1,
+                'u3': self.read_half_float_auto(), # evmap18_06
+                'v3': self.read_half_float_auto() * -1,
                 }
             if vertex['normal_pad'] != b'\x00\x00':
                 print('vertex 0x2c normal_pad nonzero:', vertex)
         elif self.vc_game == 1 and bytes_per_vertex == 0x30:
             vertex = {
-                'location_x': self.read_float_be(),
-                'location_y': self.read_float_be(),
-                'location_z': self.read_float_be(),
+                'location_x': self.read_float_auto(),
+                'location_y': self.read_float_auto(),
+                'location_z': self.read_float_auto(),
                 'vertex_group_1': self.read_byte(),
                 'vertex_group_2': self.read_byte(),
                 'vertex_group_3': self.read_byte(),
                 'vertex_group_pad': self.read_byte(),
-                'vertex_group_weight_1': self.read_half_float_be(),
-                'vertex_group_weight_2': self.read_half_float_be(),
+                'vertex_group_weight_1': self.read_half_float_auto(),
+                'vertex_group_weight_2': self.read_half_float_auto(),
                 'color_r': self.read_byte() / 255,
                 'color_g': self.read_byte() / 255,
                 'color_b': self.read_byte() / 255,
                 'color_a': self.read_byte() / 255,
-                'u': self.read_half_float_be(),
-                'v': self.read_half_float_be() * -1,
-                'u2': self.read_half_float_be(),
-                'v2': self.read_half_float_be() * -1,
-                'u3': self.read_half_float_be(),
-                'v3': self.read_half_float_be() * -1,
-                'normal_x': self.read_half_float_be(),
-                'normal_y': self.read_half_float_be(),
-                'normal_z': self.read_half_float_be(),
+                'u': self.read_half_float_auto(),
+                'v': self.read_half_float_auto() * -1,
+                'u2': self.read_half_float_auto(),
+                'v2': self.read_half_float_auto() * -1,
+                'u3': self.read_half_float_auto(),
+                'v3': self.read_half_float_auto() * -1,
+                'normal_x': self.read_half_float_auto(),
+                'normal_y': self.read_half_float_auto(),
+                'normal_z': self.read_half_float_auto(),
                 'normal_pad': self.read(2),
                 # Some kind of direction data as 4 bytes - tangent?
                 'unknown_vec': self.read(4),
@@ -1010,27 +1035,29 @@ class ValkKFMG(ValkFile):
                 print('vertex 0x30 normal_pad nonzero:', vertex)
         elif self.vc_game == 1 and bytes_per_vertex == 0x50:
             vertex = {
-                'location_x': self.read_float_be(),
-                'location_y': self.read_float_be(),
-                'location_z': self.read_float_be(),
+                'location_x': self.read_float_auto(),
+                'location_y': self.read_float_auto(),
+                'location_z': self.read_float_auto(),
                 # (0.0, 1.0, 0.0) - or maybe ([0,0,0,0], 1.0, 0.0) for vertex groups?..
-                'unknown_1': self.read(4 * 3),
+                'unknown_1a': self.read_long_auto(),
+                'unknown_1b': self.read_float_auto(),
+                'unknown_1c': self.read_long_auto(),
                 # Some kind of direction data as 4 bytes - two tangents?
                 'unknown_vec': self.read(4 * 2),
-                'normal_x': self.read_float_be(),
-                'normal_y': self.read_float_be(),
-                'normal_z': self.read_float_be(),
+                'normal_x': self.read_float_auto(),
+                'normal_y': self.read_float_auto(),
+                'normal_z': self.read_float_auto(),
                 'color_r': self.read_byte() / 255, # val_mp004
                 'color_g': self.read_byte() / 255,
                 'color_b': self.read_byte() / 255,
                 'color_a': self.read_byte() / 255,
-                'u': self.read_float_be(),
-                'v': self.read_float_be() * -1,
-                'u2': self.read_float_be(),
-                'v2': self.read_float_be() * -1,
+                'u': self.read_float_auto(),
+                'v': self.read_float_auto() * -1,
+                'u2': self.read_float_auto(),
+                'v2': self.read_float_auto() * -1,
                 'unknown_4': self.read(4 * 4),
                 }
-            if vertex['unknown_1'] != b'\x00\x00\x00\x00?\x80\x00\x00\x00\x00\x00\x00':
+            if vertex['unknown_1a'] != 0 or vertex['unknown_1b'] != 1 or vertex['unknown_1c'] != 0:
                 print('vertex 0x50 unknown_1 nonzero:', vertex)
             if vertex['unknown_4'] != b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00':
                 print('vertex 0x50 unknown_4 nonzero:', vertex)
