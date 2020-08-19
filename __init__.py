@@ -758,10 +758,18 @@ class ValkyriaScene:
         self.filename = name
         self.image_manager = materials.ImageManager()
         self.material_builder = materials.MaterialBuilder(self)
+        self.extra_objects = []
 
     def create_scene(self, name):
         self.scene = bpy.data.scenes.new(name)
         self.context.window.scene = self.scene
+        self.init_scene()
+
+    def reuse_scene(self):
+        self.scene = self.context.scene
+        self.init_scene()
+
+    def init_scene(self):
         self.view_layer = self.scene.view_layers[0]
         self.root_layer_collection = self.view_layer.layer_collection
         self.root_collection = self.root_layer_collection.collection
@@ -786,6 +794,7 @@ class ValkyriaScene:
         lamp.rotation_mode = 'AXIS_ANGLE'
         lamp.rotation_axis_angle = (radians(-22.0), 1.0, 0.0, 0.0)
         self.root_collection.objects.link(lamp)
+        self.extra_objects.append(lamp)
 
     def read_data(self):
         self.source_file.read_data()
@@ -804,15 +813,27 @@ class ValkyriaScene:
                 self.hmdl_htex_pack = HTEX_Pack(htex, 0)
                 self.hmdl_htex_pack.read_data()
 
-    def build_blender(self):
-        self.create_scene(self.name)
+    def build_blender(self, create_scene):
+        if create_scene:
+            self.create_scene(self.name)
+            self.create_lamp()
+        else:
+            self.reuse_scene()
         self.create_collection(self.name)
-        self.create_lamp()
         self.source_file.build_blender(self)
         self.source_file.finalize_blender()
         if isinstance(self.source_file, HMDL_Model) and hasattr(self, 'hmdl_htex_pack'):
             self.hmdl_htex_pack.build_blender(self)
             self.source_file.assign_materials(self.hmdl_htex_pack.htsf_images)
+
+    def fix_rotation(self):
+        matrix = Matrix.Rotation(radians(90), 4, 'X')
+
+        self.view_layer.update()
+
+        for obj in [*self.collection.objects, *self.extra_objects]:
+            if not obj.parent:
+                obj.matrix_world = matrix @ obj.matrix_world
 
     def pose_blender(self, pose_filename):
         poses = IZCA_Poses(valkyria.files.valk_open(pose_filename)[0])
@@ -830,6 +851,16 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
     filter_glob: bpy.props.StringProperty(
             default = "*.mlx;*.hmd;*.abr;*.mxe",
             options = {'HIDDEN'},
+            )
+
+    create_scene: bpy.props.BoolProperty(
+            default=True, name="Create Scene",
+            description="Create a new scene"
+            )
+
+    rotate_scene: bpy.props.BoolProperty(
+            default=True, name="Rotate Scene",
+            description="Rotate the imported scene to match the Blender 'Z Up' convention"
             )
 
     def import_file(self, context, filename):
@@ -860,7 +891,9 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
             message += '    ' + str(e)
             message += '\nTry finding the file manually and copying it into the same folder as the model you attempted to open.'
             self.report({'ERROR'}, message)
-        self.valk_scene.build_blender()
+        self.valk_scene.build_blender(self.create_scene)
+        if self.rotate_scene:
+            self.valk_scene.fix_rotation()
         #pose_filename = os.path.join(os.path.dirname(filename), "VALCA02AD.MLX")
         #self.valk_scene.pose_blender(pose_filename)
 
