@@ -1,31 +1,36 @@
 #!BPY
 # -*- coding: utf-8 -*-
 
-import os.path
-from math import radians, isfinite
-from collections import defaultdict
-import bpy, mathutils
-from bpy_extras.io_utils import ImportHelper
-from . import valkyria
-
 bl_info = {
         "name": "Valkyria Chronicles (.MLX, .HMD, .ABR, .MXE)",
         "description": "Imports model files from Valkyria Chronicles (PS3)",
         "author": "Chrrox, Gomtuu",
         "version": (0, 8),
-        "blender": (2, 74, 0),
+        "blender": (2, 83, 0),
         "location": "File > Import",
         "warning": "",
         "category": "Import-Export",
         }
 
+if 'bpy' in locals():
+    import importlib
+    importlib.reload(valkyria.files)
+    importlib.reload(materials)
+
+import os.path
+from math import radians, isfinite
+from collections import defaultdict
+import bpy, mathutils
+from mathutils import Vector, Matrix, Quaternion
+from bpy_extras.io_utils import ImportHelper
+from . import valkyria, materials
+
 
 def make_transform_matrix(loc,rot,scale):
-    mat_loc = mathutils.Matrix.Translation(loc)
-    mat_rot = mathutils.Quaternion(rot).to_matrix().to_4x4()
-    mat_scale = mathutils.Matrix()
-    mat_scale[0][0], mat_scale[1][1], mat_scale[2][2] = scale[0], scale[1], scale[2]
-    return mat_loc * mat_rot * mat_scale
+    mat_loc = Matrix.Translation(loc)
+    mat_rot = Quaternion(rot).to_matrix().to_4x4()
+    mat_scale = Matrix.Diagonal([*scale, 1])
+    return mat_loc @ mat_rot @ mat_scale
 
 
 class Texture_Pack:
@@ -39,9 +44,9 @@ class Texture_Pack:
         self.htsf_images.append(image)
         return image
 
-    def build_blender(self):
+    def build_blender(self, vscene):
         for image in self.htsf_images:
-            image.build_blender()
+            image.build_blender(vscene)
         self.blender_built = True
 
 
@@ -64,32 +69,41 @@ class HTEX_Pack:
             image = self.add_image(htsf)
             image.read_data()
 
-    def build_blender(self):
+    def build_blender(self, vscene):
         for image in self.htsf_images:
-            image.build_blender()
+            image.build_blender(vscene)
         self.blender_built = True
 
     def build_raw_texture_planes(self):
         obj = None
 
         for i, image in enumerate(self.htsf_images):
-            texture = bpy.data.textures.new(type='IMAGE', name=image.filename)
-            texture.image = image.image
-            texture.use_alpha = not image.is_normal_map
-
             material = bpy.data.materials.new(name=image.filename)
-            material.use_shadeless = True
-            material.diffuse_color = (1, 1, 1)
-            slot = material.texture_slots.add()
-            slot.texture_coords = 'UV'
-            slot.texture = texture
+            material.use_nodes = True
+            material.blend_method = 'CLIP'
+            material.shadow_method = 'CLIP'
+            node_tree = material.node_tree
 
-            if texture.use_alpha:
-                slot.use_map_alpha = True
-                slot.alpha_factor = 1.0
-                material.use_transparency = True
-                material.transparency_method = 'Z_TRANSPARENCY'
-                material.alpha = 0.1
+            for n in list(node_tree.nodes):
+                node_tree.nodes.remove(n)
+
+            nodes = {}
+            nodes['Principled BSDF'] = node = node_tree.nodes.new('ShaderNodeBsdfPrincipled')
+            node.name = 'Principled BSDF'
+            node.location = Vector((170, 300))
+            node.inputs['Base Color'].default_value = (0.0, 0.0, 0.0, 1.0)
+            node.inputs['Metallic'].default_value = 0.0
+            node.inputs['Specular'].default_value = 0.0
+            nodes['Image Texture'] = node = node_tree.nodes.new('ShaderNodeTexImage')
+            node.name = 'Image Texture'
+            node.location = Vector((-140, -76))
+            node.image = image.image
+            nodes['Material Output'] = node = node_tree.nodes.new('ShaderNodeOutputMaterial')
+            node.name = 'Material Output'
+            node.location = Vector((500, 300))
+            node_tree.links.new(nodes['Image Texture'].outputs['Alpha'],nodes['Principled BSDF'].inputs['Alpha'])
+            node_tree.links.new(nodes['Principled BSDF'].outputs['BSDF'],nodes['Material Output'].inputs['Surface'])
+            node_tree.links.new(nodes['Image Texture'].outputs['Color'],nodes['Principled BSDF'].inputs['Emission'])
 
             if obj is None:
                 bpy.ops.mesh.primitive_plane_add()
@@ -100,9 +114,9 @@ class HTEX_Pack:
                 obj.name = image.filename
             else:
                 obj = bpy.data.objects.new(object_data=obj.data, name=image.filename)
-                bpy.context.scene.objects.link(obj)
+                bpy.context.collection.objects.link(obj)
 
-            obj.location = i * mathutils.Vector((2,0,0))
+            obj.location = i * Vector((2,0,0))
             mslot = obj.material_slots[0]
             mslot.link = 'OBJECT'
             mslot.material = material
@@ -113,77 +127,17 @@ class HTSF_Image:
         self.F = source_file
         assert len(self.F.DDS) == 1
         self.dds = self.F.DDS[0]
-        self.dds_data = None
-        self.is_normal_map = False
+        self.image_ref = None
 
-    def write_tmp_dds(self, dds_path):
-        tmp_dds = open(dds_path, 'wb')
-        tmp_dds.write(self.dds.data)
-        tmp_dds.close()
+    @property
+    def image(self):
+        if not self.image_ref:
+            # Lazy import on demand
+            self.vscene.image_manager.load_image(self)
+        return self.image_ref
 
-    def convert_dds_to_png(self, dds_path):
-        from bpy_extras.image_utils import load_image
-        import platform
-        import pathlib
-        import subprocess
-        png_path = dds_path[0:-4] + '.png'
-        home = pathlib.Path.home()
-        current_os = platform.system()
-        if current_os == 'Linux':
-            converter = home / 'Compressonator' / 'CompressonatorCLI'
-            command = ['sh', str(converter), '-fs', 'BC7', dds_path, png_path]
-        if current_os == 'Darwin':
-            converter = home / 'Compressonator' / 'CompressonatorCLI.sh'
-            command = ['sh', str(converter), '-fs', 'BC7', dds_path, png_path]
-        if current_os == 'Windows':
-            converter = home / 'texconv' / 'texconv.exe'
-            dds_folder = pathlib.Path(dds_path).parent
-            command = [str(converter), '-ft', 'png', '-o', str(dds_folder), dds_path]
-            png_path = dds_path[0:-4] + '.PNG'
-        subprocess.run(command)
-        self.image = load_image(png_path)
-        self.image.pack()
-        os.remove(png_path)
-
-    def build_blender(self):
-        from bpy_extras.image_utils import load_image
-        tempdir = bpy.app.tempdir
-        dds_path = os.path.join(tempdir, self.filename)
-        self.write_tmp_dds(dds_path)
-        self.image = load_image(dds_path)
-        supported = self.image.size[0] > 0 or self.image.size[1] > 0
-        self.image.pack()
-        if not supported:
-            # DDS file is probably BC7, which Blender doesn't support yet.
-            self.convert_dds_to_png(dds_path)
-        os.remove(dds_path)
-        self.detect_normal_map()
-
-    def detect_normal_map(self):
-        image = self.image
-        pixels = image.pixels
-
-        if image.channels != 4:
-            return
-
-        # Test 100 points on the image
-        num_pixels = int(len(pixels) / 4)
-        num_points = min(num_pixels, 100)
-
-        midvec = mathutils.Vector((0.5, 0.5, 0.5))
-        sumvec = mathutils.Vector((0, 0, 0))
-
-        for i in range(0, num_pixels, int(num_pixels / num_points)):
-            color = mathutils.Vector((pixels[i*4], pixels[i*4 + 1], pixels[i*4 + 2]))
-            normal = (color - midvec) * 2
-            # Require a valid normalized vector (allowing for precision issues e.g. in evmap04_02)
-            if normal.z <= 0 or abs(normal.length - 1.0) > 0.3:
-                return
-            sumvec += normal
-
-        # Require the average to point in the right direction
-        if sumvec.normalized().z > 0.8:
-            self.is_normal_map = True
+    def build_blender(self, vscene):
+        self.vscene = vscene
 
     def read_data(self):
         self.dds.read_data()
@@ -249,10 +203,10 @@ class IZCA_Model:
                 model = self.add_model(hmd)
                 model.read_data()
 
-    def build_blender(self):
+    def build_blender(self, vscene):
         for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
-            texture_pack.build_blender()
-            model.build_blender()
+            texture_pack.build_blender(vscene)
+            model.build_blender(vscene)
             model.assign_materials(texture_pack.htsf_images)
         for shape_key_set in self.shape_key_sets:
             # TODO: Is there a smarter way to determine which models use shape keys?
@@ -353,12 +307,12 @@ class ABRS_Model:
                 htex_count += 1
         assert len(self.texture_packs) == len(self.hmdl_models)
 
-    def build_blender(self):
+    def build_blender(self, vscene):
         if self.first_texture_pack:
-            self.first_texture_pack.build_blender()
+            self.first_texture_pack.build_blender(vscene)
         for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
-            texture_pack.build_blender()
-            model.build_blender()
+            texture_pack.build_blender(vscene)
+            model.build_blender(vscene)
             model.assign_materials(texture_pack.htsf_images)
 
     def finalize_blender(self):
@@ -440,8 +394,8 @@ class MXEN_Model:
             else:
                 self.hmdl_models.append(model)
             self.instances.append((
-                mathutils.Vector((mxec_model["location_x"], mxec_model["location_y"], mxec_model["location_z"])),
-                mathutils.Vector((radians(mxec_model["rotation_x"]), radians(mxec_model["rotation_y"]), radians(mxec_model["rotation_z"]))),
+                Vector((mxec_model["location_x"], mxec_model["location_y"], mxec_model["location_z"])),
+                Vector((radians(mxec_model["rotation_x"]), radians(mxec_model["rotation_y"]), radians(mxec_model["rotation_z"]))),
                 (mxec_model["scale_x"], mxec_model["scale_y"], mxec_model["scale_z"])
                 ))
             texture_file_desc = mxec_model["texture_file"]
@@ -463,22 +417,22 @@ class MXEN_Model:
             else:
                 self.texture_packs.append(texture_pack)
 
-    def build_blender(self):
+    def build_blender(self, vscene):
         for texture_pack, model, instance_info in zip(self.texture_packs, self.hmdl_models, self.instances):
             if texture_pack.blender_built:
                 pass
             else:
-                texture_pack.build_blender()
+                texture_pack.build_blender(vscene)
             if model.empty:
                 # Model has already been built and has an "empty" object
                 bpy.ops.object.select_all(action='DESELECT')
-                bpy.context.scene.objects.active = model.empty
-                model.empty.select = True
+                vscene.view_layer.objects.active = model.empty
+                model.empty.select_set(True)
                 bpy.ops.object.select_grouped(extend=True, type='CHILDREN_RECURSIVE')
                 bpy.ops.object.duplicate(linked=True)
-                instance = bpy.context.scene.objects.active
+                instance = vscene.view_layer.objects.active
             else:
-                model.build_blender()
+                model.build_blender(vscene)
                 model.empty.name = model.mxec_filename
                 model.assign_materials(texture_pack.htsf_images)
                 instance = model.empty
@@ -520,15 +474,16 @@ class HMDL_Model:
             model = self.add_model(kfmd)
             model.read_data()
 
-    def build_blender(self):
+    def build_blender(self, vscene):
         self.empty = bpy.data.objects.new("HMDL-{:03d}".format(self.model_id), None)
-        bpy.context.scene.objects.link(self.empty)
+        vscene.collection.objects.link(self.empty)
         for model in self.kfmd_models:
-            model.build_blender()
+            model.build_blender(vscene)
             model.empty.parent = self.empty
 
     def assign_materials(self, texture_pack):
         for model in self.kfmd_models:
+            model.assign_uv_maps()
             model.assign_vertex_colors()
             model.build_materials(texture_pack)
             model.assign_materials()
@@ -551,14 +506,13 @@ class KFMD_Model:
         self.empty = None
         self.oneside = None
 
-    def build_armature(self):
+    def build_armature(self, vscene):
         armature = bpy.data.objects.new("Armature",
             bpy.data.armatures.new("ArmatureData"))
-        scene = bpy.context.scene
-        scene.objects.link(armature)
-        scene.objects.active = armature
-        armature.select = True
-        armature.data.draw_type = 'STICK'
+        vscene.collection.objects.link(armature)
+        vscene.view_layer.objects.active = armature
+        armature.select_set(True)
+        armature.data.display_type = 'STICK'
         bpy.ops.object.mode_set(mode = 'EDIT')
         for bone in self.bones:
             if 'deform_id' in bone:
@@ -568,11 +522,11 @@ class KFMD_Model:
             bone["matrix"] = make_transform_matrix(bone["location"], bone["rotation"], bone["scale"])
             if bone["parent"]:
                 bone["accum_matrix"] = bone["parent"]["accum_matrix"]
-                bone["head"] = bone["accum_matrix"] * mathutils.Vector(bone["location"])
-                bone["accum_matrix"] = bone["accum_matrix"] * bone["matrix"]
+                bone["head"] = bone["accum_matrix"] @ Vector(bone["location"])
+                bone["accum_matrix"] = bone["accum_matrix"] @ bone["matrix"]
             else:
                 bone["accum_matrix"] = bone["matrix"]
-                bone["head"] = mathutils.Vector(bone["location"])
+                bone["head"] = Vector(bone["location"])
         for bone in self.bones:
             # Default bone orientation and size
             if bone["parent"]:
@@ -583,7 +537,7 @@ class KFMD_Model:
             # Point the bone at the average position of its children if they are in a common direction
             child_vecs = [ child["head"] - bone["head"] for child in bone["children"] if (child["head"] - bone["head"]).length > 1e-4 ]
             if len(child_vecs) > 0:
-                avg_vec = sum(child_vecs, mathutils.Vector((0,0,0))) / len(child_vecs)
+                avg_vec = sum(child_vecs, Vector((0,0,0))) / len(child_vecs)
                 avg_dir = avg_vec.normalized()
                 if all(vec.normalized().dot(avg_dir) > 0.8 for vec in child_vecs):
                     bone["tail"] = bone["head"] + avg_vec
@@ -598,29 +552,18 @@ class KFMD_Model:
         bpy.ops.object.mode_set(mode = 'OBJECT')
         return armature
 
-    def build_meshes(self):
+    def build_meshes(self, vscene):
         for i, mesh_dict in enumerate(self.meshes):
             # Create mesh object
             mesh = bpy.data.meshes.new("MeshData-{:03d}".format(i))
             mesh_dict["bpy"] = bpy.data.objects.new("Mesh-{:03d}".format(i), mesh)
-            bpy.context.scene.objects.link(mesh_dict['bpy'])
+            vscene.collection.objects.link(mesh_dict['bpy'])
             mesh_dict["bpy"].parent = self.armature
-            # Create vertices
-            mesh.vertices.add(len(mesh_dict['vertices']))
-            vertex_array = []
-            for vertex in mesh_dict["vertices"]:
-                vertex_array.append(vertex["location_x"])
-                vertex_array.append(vertex["location_y"])
-                vertex_array.append(vertex["location_z"])
-            mesh.vertices.foreach_set("co", vertex_array)
-            # Create faces
-            face_count = len(mesh_dict["faces"])
-            mesh.tessfaces.add(face_count)
-            face_array = []
-            for face in mesh_dict["faces"]:
-                face_array.extend(face)
-            mesh.tessfaces.foreach_set("vertices_raw", face_array)
-            mesh.update()
+            # Create mesh data
+            vertices = [vertex["location"] for vertex in mesh_dict["vertices"]]
+            mesh.from_pydata(vertices, [], mesh_dict["faces"])
+            for p in mesh.polygons:
+                p.use_smooth = True
             # Move accessories to proper places
             parent_bone_id = mesh_dict["object"]["parent_bone_id"]
             parent_bone = self.bones[parent_bone_id]
@@ -630,10 +573,10 @@ class KFMD_Model:
                 mesh_dict["bpy"].matrix_parent_inverse = parent_bone["accum_matrix"]
             elif parent_bone["name"] in self.armature.data.bones:
                 bone = self.armature.data.bones[parent_bone["name"]]
-                bone_matrix = bone.matrix_local * mathutils.Matrix.Translation((0,bone.length,0))
+                bone_matrix = bone.matrix_local @ Matrix.Translation((0,bone.length,0))
                 mesh_dict["bpy"].parent_type = 'BONE'
                 mesh_dict["bpy"].parent_bone = parent_bone["name"]
-                mesh_dict["bpy"].matrix_parent_inverse = bone_matrix.inverted() * parent_bone["accum_matrix"]
+                mesh_dict["bpy"].matrix_parent_inverse = bone_matrix.inverted() @ parent_bone["accum_matrix"]
             else:
                 mesh_dict["bpy"].parent_type = 'OBJECT'
                 mesh_dict["bpy"].matrix_parent_inverse = parent_bone["accum_matrix"]
@@ -646,16 +589,17 @@ class KFMD_Model:
                 if vgroup_name in mesh["bpy"].vertex_groups:
                     vgroup = mesh["bpy"].vertex_groups[vgroup_name]
                 else:
-                    vgroup = mesh["bpy"].vertex_groups.new(vgroup_name)
+                    vgroup = mesh["bpy"].vertex_groups.new(name=vgroup_name)
                 for vertex_id, weight in vertex_list:
                     vgroup.add([vertex_id], weight, 'ADD')
 
-    def build_blender(self):
+    def build_blender(self, vscene):
+        self.vscene = vscene
         self.empty = bpy.data.objects.new("KFMD-{:03d}".format(self.model_id), None)
-        bpy.context.scene.objects.link(self.empty)
-        self.armature = self.build_armature()
+        vscene.collection.objects.link(self.empty)
+        self.armature = self.build_armature(vscene)
         self.armature.parent = self.empty
-        self.build_meshes()
+        self.build_meshes(vscene)
         self.assign_vertex_groups()
 
     def index_vertex_groups(self):
@@ -712,215 +656,69 @@ class KFMD_Model:
         element1.color = (1.0, 1.0, 1.0, 1.0)
 
     def build_materials(self, texture_pack):
-        if self.kfms.vc_game == 1:
-            self.build_materials_old(texture_pack)
-        elif self.kfms.vc_game == 4:
-            self.build_materials_new(texture_pack)
+        builder = self.vscene.material_builder
 
-    def build_materials_new(self, texture_pack):
-        for ptr, texture_dict in self.textures.items():
-            name = "Texture-{:04x}".format(ptr)
-            texture_dict["bpy"] = bpy.data.textures.new(name, type = 'IMAGE')
-            texture_dict["bpy"].image = texture_pack[texture_dict["image"]].image
-            texture_dict["bpy"].use_alpha = True
         for ptr, material_dict in self.materials.items():
             name = "Material-{:04x}".format(ptr)
-            material_dict["bpy"] = material = bpy.data.materials.new(name)
-            #material.game_settings.use_backface_culling = material_dict["use_backface_culling"]
-            material.diffuse_intensity = 1.0
-            material.specular_intensity = 0.0
-            if material_dict["texture0_ptr"]:
-                slot0 = material.texture_slots.add()
-                slot0.texture_coords = 'UV'
-                slot0.texture = material_dict["texture0"]["bpy"]
-                slot0.use_map_alpha = True
-                slot0.alpha_factor = 1.0
-            if material_dict["use_transparency"]:
-                material.use_transparency = True
-                material.transparency_method = 'Z_TRANSPARENCY'
-                material.alpha = 0.0
-            if material_dict["texture1_ptr"]:
-                slot1 = material.texture_slots.add()
-                slot1.texture_coords = 'UV'
-                slot1.texture = material_dict["texture1"]["bpy"]
-            if material_dict["texture2_ptr"]:
-                slot2 = material.texture_slots.add()
-                slot2.texture_coords = 'UV'
-                slot2.texture = material_dict["texture2"]["bpy"]
-            if material_dict["texture3_ptr"]:
-                slot3 = material.texture_slots.add()
-                slot3.texture_coords = 'UV'
-                slot3.texture = material_dict["texture3"]["bpy"]
-                # This texture slot is (almost?) always used to add shading
-                # to a character's eyeball. The texture needs to be multiplied
-                # instead of mixed for the shading to look right.
-                slot3.blend_type = 'MULTIPLY'
-            if material_dict["texture4_ptr"]:
-                slot4 = material.texture_slots.add()
-                slot4.texture_coords = 'UV'
-                slot4.texture = material_dict["texture4"]["bpy"]
-            if material_dict["use_backface_culling"]:
-                material.use_nodes = True
-                material.use_transparency = True
-                nodes = material.node_tree.nodes
-                nodes['Material'].material = material
-                geom = nodes.new('ShaderNodeGeometry')
-                math = nodes.new('ShaderNodeMath')
-                math.operation = 'MULTIPLY'
-                material.node_tree.links.new(nodes['Material'].outputs['Alpha'], math.inputs[0])
-                material.node_tree.links.new(geom.outputs['Front/Back'], math.inputs[1])
-                material.node_tree.links.new(math.outputs['Value'], nodes['Output'].inputs['Alpha'])
 
-    def build_materials_old(self, texture_pack):
-        for ptr, texture_dict in self.textures.items():
-            # TODO: Consider doing this another way.
-            name = "Texture-{:04x}".format(ptr)
-            if 0 <= texture_dict["image"] < len(texture_pack):
-                pack_image = texture_pack[texture_dict["image"]]
-                image = pack_image.image
-            else:
-                pack_image = image = None
-            texture_dict["bpy"] = bpy.data.textures.new(name, type = 'IMAGE')
-            texture_dict["bpy"].image = image
-            texture_dict["bpy"].use_alpha = False
-            if pack_image and pack_image.is_normal_map:
-                texture_dict["bpy_normal"] = bpy.data.textures.new(name + "-normal", type = 'IMAGE')
-                texture_dict["bpy_normal"].image = image
-                texture_dict["bpy_normal"].use_alpha = False
-                texture_dict["bpy_normal"].use_normal_map = True
-                pack_image.image.use_alpha = False
-            else:
-                texture_dict["bpy_alpha"] = bpy.data.textures.new(name + "-alpha", type = 'IMAGE')
-                texture_dict["bpy_alpha"].image = image
-                texture_dict["bpy_alpha"].use_alpha = True
-        for ptr, material_dict in self.materials.items():
-            name = "Material-{:04x}".format(ptr)
-            material = bpy.data.materials.new(name)
-            material.game_settings.use_backface_culling = material_dict["use_backface_culling"]
-            material.diffuse_color = (1.0, 1.0, 1.0)
-            material.diffuse_intensity = 1.0
-            material.specular_intensity = 0.0
-            if material_dict["texture0_ptr"]:
-                slot0 = material.texture_slots.add()
-                slot0.texture_coords = 'UV'
-                slot0.blend_type = 'MULTIPLY'
-                if material_dict["use_alpha"] and "bpy_alpha" in material_dict["texture0"]:
-                    slot0.texture = material_dict["texture0"]["bpy_alpha"]
-                    slot0.use_map_alpha = True
-                    slot0.alpha_factor = 1.0
-                else:
-                    slot0.texture = material_dict["texture0"]["bpy"]
-                if "bpy_normal" in material_dict["texture0"]:
-                    print('Did not expect main texture {} to be a normal map in {}'.format(slot0.texture.name, name))
-            if material_dict["use_alpha"]:
-                material.use_transparency = True
-                material.transparency_method = 'Z_TRANSPARENCY'
-                material.alpha = 1.0
-            if material_dict["texture1_ptr"]:
-                slot1 = material.texture_slots.add()
-                slot1.texture_coords = 'UV'
-                if "bpy_normal" in material_dict["texture1"]:
-                    slot1.texture = material_dict["texture1"]["bpy_normal"]
-                    slot1.use_map_color_diffuse = False
-                    slot1.use_map_normal = True
-                    if not material_dict["use_normal"]:
-                        print('Did not expect {} to be a normal map in {}'.format(slot1.texture.name, name))
-                else:
-                    slot1.texture = material_dict["texture1"]["bpy_alpha"]
-                    if material_dict["use_normal"]:
-                        print('Expected {} to be a valid normal map in {}'.format(slot1.texture.name, name))
-            if material_dict["use_backface_culling"]:
-                slot2 = material.texture_slots.add()
-                if self.oneside is None:
-                    self.create_oneside()
-                slot2.texture = self.oneside
-                slot2.texture_coords = 'NORMAL'
-                slot2.use_map_color_diffuse = False
-                slot2.use_map_alpha = True
-                slot2.mapping_x = 'Z'
-                slot2.mapping_y = 'NONE'
-                slot2.mapping_z = 'NONE'
-                slot2.default_value = 0.0
-                slot2.use_rgb_to_intensity = True
-            if material_dict.get('needs_vertex_colors'):
-                if material_dict.get('needs_no_vertex_colors'):
-                    material_dict["bpy"] = material
-                    material = material.copy()
-                    material.name = material_dict["bpy"].name + '-VColor'
-                material_dict["bpy_vcolor"] = material
-                material_dict["bpy_vcolor"].use_vertex_color_paint = True
-            else:
-                material_dict["bpy"] = material
+            matbpy = material_dict['bpy'] = {}
+            for vcolors in material_dict['needs_vertex_colors']:
+                matbpy[vcolors] = builder.build_material(name, material_dict, texture_pack, vcolors)
 
     def assign_materials(self):
-        uv_names = [("u", "v"), ("u2", "v2"), ("u3", "v3"), ("u4", "v4"), ("u5", "v5")]
         for mesh in self.meshes:
             vertices = mesh["vertices"]
             if len(vertices) == 0:
                 continue
             material_dict = self.materials[mesh["object"]["material_ptr"]]
-            if mesh['has_vertex_colors']:
-                material = material_dict["bpy_vcolor"]
-            else:
-                material = material_dict["bpy"]
+            material = material_dict['bpy'][mesh['has_vertex_colors']]
             mesh["bpy"].data.materials.append(material)
-            for slot_i, (u, v) in enumerate(uv_names):
-                if u not in vertices[0]:
-                    break
-                uvname = "UVMap-{}".format(slot_i)
-                texslot = material.texture_slots[slot_i]
-                if hasattr(texslot, "texture") and texslot.texture.type == 'IMAGE':
-                    image = texslot.texture.image
-                    texslot.uv_layer = uvname
-                else:
-                    image = None
-                    for vert in vertices:
-                        if vert[u] != 0 or vert[v] != 0:
-                            break
-                    else:
-                        continue
-                uv_texture = mesh["bpy"].data.uv_textures.new(uvname)
-                uv_layer = mesh["bpy"].data.uv_layers[uvname]
-                for i, face in enumerate(mesh["faces"]):
-                    mesh["bpy"].data.polygons[i].use_smooth = 1
-                    uv_layer.data[i*3 + 0].uv = (vertices[face[0]][u], vertices[face[0]][v] + 1)
-                    uv_layer.data[i*3 + 1].uv = (vertices[face[1]][u], vertices[face[1]][v] + 1)
-                    uv_layer.data[i*3 + 2].uv = (vertices[face[2]][u], vertices[face[2]][v] + 1)
-                    if image:
-                        uv_texture.data[i].image = image
 
-    def assign_vertex_colors(self):
-        color_names = [('Color-0', 'color_r', 'color_g', 'color_b'),
-                       ('Alpha-0', 'color_a', 'color_a', 'color_a'),
-                       ('Color-1', 'color_r2', 'color_g2', 'color_b2'),
-                       ('Alpha-1', 'color_a2', 'color_a2', 'color_a2')]
+    def assign_uv_maps(self):
+        uv_names = ["uv", "uv2", "uv3", "uv4", "uv5"]
         for mesh in self.meshes:
-            mesh['has_vertex_colors'] = False
             vertices = mesh["vertices"]
             if len(vertices) == 0:
                 continue
-            for color_i, (name, r, g, b) in enumerate(color_names):
-                if r not in vertices[0]:
+            for slot_i, field in enumerate(uv_names):
+                if field not in vertices[0]:
                     break
                 for vert in vertices:
-                    if vert[r] != 1 or vert[g] != 1 or vert[b] != 1:
+                    if vert[field] != (0,0):
                         break
                 else:
                     continue
-                mesh['has_vertex_colors'] = True
-                layer = mesh["bpy"].data.vertex_colors.new(name=name)
-                for i, face in enumerate(mesh["faces"]):
-                    layer.data[i*3 + 0].color = (vertices[face[0]][r], vertices[face[0]][g], vertices[face[0]][b])
-                    layer.data[i*3 + 1].color = (vertices[face[1]][r], vertices[face[1]][g], vertices[face[1]][b])
-                    layer.data[i*3 + 2].color = (vertices[face[2]][r], vertices[face[2]][g], vertices[face[2]][b])
+                uv_name = "UVMap-{}".format(slot_i)
+                layer = mesh["bpy"].data.uv_layers.new(name=uv_name)
+                for data, loop in zip(layer.data, mesh["bpy"].data.loops):
+                    u, v = vertices[loop.vertex_index][field]
+                    data.uv = (u, 1 - v)
+
+    def assign_vertex_colors(self):
+        color_names = ['color', 'color2']
+        for mesh in self.meshes:
+            vcolors = set()
+            vertices = mesh["vertices"]
+            if len(vertices) == 0:
+                continue
+            for color_i, field in enumerate(color_names):
+                if field not in vertices[0]:
+                    break
+                for vert in vertices:
+                    if vert[field] != (1,1,1,1):
+                        break
+                else:
+                    continue
+                vcolors.add(color_i)
+                color_name = "Color-{}".format(color_i)
+                layer = mesh["bpy"].data.vertex_colors.new(name=color_name)
+                for data, loop in zip(layer.data, mesh["bpy"].data.loops):
+                    data.color = vertices[loop.vertex_index][field]
+            mesh['has_vertex_colors'] = vcolors = frozenset(vcolors)
             material = self.materials[mesh["object"]["material_ptr"]]
-            if mesh['has_vertex_colors']:
-                material['needs_vertex_colors'] = True
-            else:
-                material['needs_no_vertex_colors'] = True
+            material.setdefault('needs_vertex_colors', set()).add(vcolors)
 
     def build_shape_keys(self, shape_key_set):
-        scene = bpy.context.scene
         for mesh, shape_key in zip(self.meshes, shape_key_set.shape_keys):
             if shape_key['vc_game'] == 1:
                 shape_vertices = shape_key["vertices"]
@@ -930,88 +728,64 @@ class KFMD_Model:
                 slice_end = slice_start + mesh["vertex_count"]
                 shape_vertices = shape_key["vertices"][slice_start:slice_end]
                 vertex_shift = 0
-            if "bpy_dup_base" not in mesh:
-                bpy.ops.object.select_all(action='DESELECT')
-                scene.objects.active = mesh["bpy"]
-                mesh["bpy"].select = True
-                bpy.ops.object.duplicate()
-                mesh["bpy_dup_base"] = scene.objects.active
-            bpy.ops.object.select_all(action='DESELECT')
-            scene.objects.active = mesh["bpy_dup_base"]
-            mesh["bpy_dup_base"].select = True
-            bpy.ops.object.duplicate()
-            temp_object = scene.objects.active
-            temp_object.name = "HSHP-{:02d}".format(shape_key_set.shape_key_set_id)
+            if not mesh["bpy"].data.shape_keys:
+                mesh["bpy"].shape_key_add(name='Basis')
+            sk_name = "HSHP-{:02d}".format(shape_key_set.shape_key_set_id)
+            sk = mesh["bpy"].shape_key_add(name=sk_name)
             for i, vertex in enumerate(shape_vertices):
-                if not "translate_x" in vertex:
+                if "translate" not in vertex:
                     continue
-                j = i + vertex_shift
-                old = temp_object.data.vertices[j].co
-                new = [old[0] + vertex["translate_x"],
-                    old[1] + vertex["translate_y"],
-                    old[2] + vertex["translate_z"],
-                    ]
-                temp_object.data.vertices[j].co = new
-            scene.objects.active = mesh["bpy"]
-            temp_object.select = True
-            bpy.ops.object.join_shapes()
-            bpy.ops.object.select_all(action='DESELECT')
-            temp_object.select = True
-            bpy.ops.object.delete()
+                sk.data[i + vertex_shift].co += Vector(vertex["translate"])
 
     def finalize_blender(self):
         for mesh in self.meshes:
             mesh["bpy"].data.update()
             mesh["bpy"].data.use_auto_smooth = True
-            normals = [(dict_vertex["normal_x"], dict_vertex["normal_y"], dict_vertex["normal_z"]) for dict_vertex in mesh["vertices"]]
+            normals = [dict_vertex["normal"] for dict_vertex in mesh["vertices"]]
             mesh["bpy"].data.normals_split_custom_set_from_vertices(normals)
-            if "bpy_dup_base" in mesh:
-                bpy.ops.object.select_all(action='DESELECT')
-                mesh["bpy_dup_base"].select = True
-                bpy.ops.object.delete()
+
+
+class DummyScene:
+    def __init__(self):
+        self.image_manager = materials.ImageManager()
 
 
 class ValkyriaScene:
-    def __init__(self, source_file, name):
+    def __init__(self, context, source_file, name):
+        self.context = context
         self.source_file = source_file
         self.name = os.path.basename(name)
         self.filename = name
-        self.layers_used = 0
-
-    def layer_list(self, layer_num):
-        max_layers = 20
-        clamped_layer_num = layer_num % max_layers
-        if clamped_layer_num + 1 > self.layers_used:
-            self.layers_used = clamped_layer_num + 1
-        layers_before = [False] * clamped_layer_num
-        layers_after = [False] * (max_layers - 1 - clamped_layer_num)
-        return layers_before + [True] + layers_after
+        self.image_manager = materials.ImageManager()
+        self.material_builder = materials.MaterialBuilder(self)
 
     def create_scene(self, name):
         self.scene = bpy.data.scenes.new(name)
+        self.context.window.scene = self.scene
+        self.view_layer = self.scene.view_layers[0]
+        self.root_layer_collection = self.view_layer.layer_collection
+        self.root_collection = self.root_layer_collection.collection
         for screen in bpy.data.screens:
-            screen.scene = self.scene
             for area in screen.areas:
                 if area.type == 'VIEW_3D':
                     for space in area.spaces:
                         if space.type == 'VIEW_3D':
                             space.clip_end = 20000
-                            space.viewport_shade = 'TEXTURED'
-                            if hasattr(space, 'show_backface_culling'):
-                                space.show_backface_culling = True
-        self.scene.layers = self.layer_list(0)
-        self.scene.game_settings.material_mode = 'GLSL'
+                            space.shading.show_backface_culling = True
         self.scene.display_settings.display_device = 'sRGB'
+        self.scene.view_settings.view_transform = 'Standard'
+
+    def create_collection(self, name):
+        self.collection = bpy.data.collections.new(name)
+        self.root_collection.children.link(self.collection)
 
     def create_lamp(self):
-        lamp_data = bpy.data.lamps.new("Default Lamp", 'HEMI')
+        lamp_data = bpy.data.lights.new("Default Lamp", 'SUN')
         lamp = bpy.data.objects.new("Default Lamp", lamp_data)
-        lamp.layers = [True] * self.layers_used + [False] * (20 - self.layers_used)
         lamp.location = (0.0, 20.0, 15.0)
         lamp.rotation_mode = 'AXIS_ANGLE'
         lamp.rotation_axis_angle = (radians(-22.0), 1.0, 0.0, 0.0)
-        self.scene.objects.link(lamp)
-        self.scene.update()
+        self.root_collection.objects.link(lamp)
 
     def read_data(self):
         self.source_file.read_data()
@@ -1032,11 +806,12 @@ class ValkyriaScene:
 
     def build_blender(self):
         self.create_scene(self.name)
+        self.create_collection(self.name)
         self.create_lamp()
-        self.source_file.build_blender()
+        self.source_file.build_blender(self)
         self.source_file.finalize_blender()
         if isinstance(self.source_file, HMDL_Model) and hasattr(self, 'hmdl_htex_pack'):
-            self.hmdl_htex_pack.build_blender()
+            self.hmdl_htex_pack.build_blender(self)
             self.source_file.assign_materials(self.hmdl_htex_pack.htsf_images)
 
     def pose_blender(self, pose_filename):
@@ -1049,13 +824,15 @@ class ValkyriaScene:
 class ImportValkyria(bpy.types.Operator, ImportHelper):
     bl_idname = 'import_scene.import_valkyria'
     bl_label = 'Valkyria Chronicles (.MLX, .HMD, .ABR, .MXE)'
+    bl_options = {'UNDO'}
+
     filename_ext = "*.mlx"
-    filter_glob = bpy.props.StringProperty(
+    filter_glob: bpy.props.StringProperty(
             default = "*.mlx;*.hmd;*.abr;*.mxe",
             options = {'HIDDEN'},
             )
 
-    def import_file(self, filename):
+    def import_file(self, context, filename):
         vfile = valkyria.files.valk_open(filename)[0]
         vfile.find_inner_files()
         if vfile.ftype == 'IZCA':
@@ -1069,13 +846,13 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
         elif vfile.ftype == 'HTEX':
             pack = HTEX_Pack(vfile, 0)
             pack.read_data()
-            pack.build_blender()
+            pack.build_blender(DummyScene())
             pack.build_raw_texture_planes()
             return
         else:
             self.report({'ERROR'}, "Unknown module file type: "+vfile.ftype)
             return
-        self.valk_scene = ValkyriaScene(model, filename)
+        self.valk_scene = ValkyriaScene(context, model, filename)
         try:
             self.valk_scene.read_data()
         except FileNotFoundError as e:
@@ -1088,7 +865,7 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
         #self.valk_scene.pose_blender(pose_filename)
 
     def execute(self, context):
-        self.import_file(self.filepath)
+        self.import_file(context, self.filepath)
         return {'FINISHED'}
 
 
@@ -1097,8 +874,8 @@ def menu_func(self, context):
 
 def register():
     bpy.utils.register_class(ImportValkyria)
-    bpy.types.INFO_MT_file_import.append(menu_func)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func)
 
 def unregister():
     bpy.utils.unregister_class(ImportValkyria)
-    bpy.types.INFO_MT_file_import.remove(menu_func)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func)

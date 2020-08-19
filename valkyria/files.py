@@ -4,6 +4,9 @@ import struct
 
 DEBUG = False
 
+def read_tuple(fn, count=3):
+    return tuple(fn() for i in range(count))
+
 
 class ValkFile:
     filename = None
@@ -48,6 +51,9 @@ class ValkFile:
 
     def read_byte_signed(self):
         return self.read_and_unpack(1, 'b')
+
+    def read_byte_factor(self):
+        return self.read_byte() / 255
 
     def read_word_le(self):
         return self.read_and_unpack(2, '<H')
@@ -204,6 +210,27 @@ class ValkFile:
             return self.F.container_path() + [self.ftype]
         else:
             return [self.filename, self.ftype]
+
+    def container_offset(self):
+        if hasattr(self.F, 'container_offset'):
+            return self.F.container_offset() + self.offset
+        else:
+            return self.offset
+
+    def print_location(self, message, *args):
+        path = ':'.join(self.container_path())
+        pos = self.tell() + self.container_offset()
+        print('%s:%x: %s' % (path, pos, message.format(*args)))
+
+    def check_unknown_fields(self, name, data, pattern):
+        for k, v in pattern.items():
+            if isinstance(v, set):
+                if data[k] in v:
+                    continue
+            else:
+                if data[k] == v:
+                    continue
+            self.print_location('unexpected {} [{}]: value is {}\n{}', name, k, data[k], data)
 
     def add_inner_file(self, inner_file):
         self.inner_files.append(inner_file)
@@ -442,9 +469,7 @@ class ValkKFSG(ValkFile):
             for skip, keep in vertfmt['skip_keep_list']:
                 for i in range(skip):
                     vertex = {
-                        "translate_x": 0.0,
-                        "translate_y": 0.0,
-                        "translate_z": 0.0,
+                        "translate": (0.0, 0.0, 0.0),
                         "translate_u": 0.0,
                         "translate_v": 0.0,
                         }
@@ -452,9 +477,7 @@ class ValkKFSG(ValkFile):
                 for i in range(keep):
                     if self.vc_game == 1:
                         vertex = {
-                            "translate_x": read_float(),
-                            "translate_y": read_float(),
-                            "translate_z": read_float(),
+                            "translate": read_tuple(read_float),
                             }
                         if vertfmt['bytes_per_vertex'] > 0xc:
                             self.read(vertfmt['bytes_per_vertex'] - 0xc)
@@ -464,9 +487,7 @@ class ValkKFSG(ValkFile):
                         vertex = {}
                         for offset, element in struct:
                             if element == self.VERT_LOCATION:
-                                vertex['translate_x'] = read_float()
-                                vertex['translate_y'] = read_float()
-                                vertex['translate_z'] = read_float()
+                                vertex['translate'] = read_tuple(read_float)
                             elif element == self.VERT_UV1:
                                 vertex['translate_u'] = read_float()
                                 vertex['translate_v'] = -1 * read_float()
@@ -754,14 +775,42 @@ class ValkKFMS(ValkFile):
             material['id'] = i
             if self.vc_game == 1:
                 material['ptr'] = self.tell()
-                material['unk1'] = self.read(4)
+                material['unk1'] = self.read_long_auto()
                 material['flags'] = self.read_long_auto()
                 material['use_normal'] = bool(material['flags'] & 0x12) # 0x10 and 0x2 both seem to indicate normal maps
                 material['use_alpha'] = bool(material['flags'] & 0x40)
                 material['use_backface_culling'] = bool(material['flags'] & 0x400)
-                material['unk2'] = self.read(8)
+                material['unk2a'] = self.read(4)
+                material['unk2b'] = read_tuple(self.read_byte, 4)
                 material['texture0_ptr'] = self.read_long_auto()
                 material['texture1_ptr'] = self.read_long_auto()
+                material['unk3a'] = self.read_long_auto()
+                material['unk3b'] = self.read(4)
+                material['unk4'] = self.read(16)
+                material['unk5a'] = read_tuple(self.read_float_auto, 4)
+                material['unk5b'] = read_tuple(self.read_float_auto, 4)
+                material['unk5c'] = read_tuple(self.read_float_auto, 4)
+                material['unk5d'] = read_tuple(self.read_float_auto, 4)
+                material['unk6'] = self.read(16)
+                material['unk7a'] = self.read(8)
+                material['unk7b'] = self.read_long_auto()
+                material['unk7c'] = self.read(4)
+                material['unk8a'] = self.read(12)
+                material['unk8d'] = self.read_long_auto()
+                self.check_unknown_fields('material', material, {
+                    'unk2a': b'\x00\x00\x00\x00',
+                    'unk3b': b'\x00\x00\x00\x00',
+                    'unk4': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+                    #'unk5a': (1,1,1,1), # evmap08_01
+                    'unk5b': (0,0,0,1),
+                    #'unk5c': (1,1,1,0), # evmap08_01
+                    #'unk5d': (0,0,0,1), # C04aB evmap08_01
+                    'unk6': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+                    'unk7a': b'\x00\x00\x00\x00\x00\x00\x00\x00',
+                    'unk7c': b'\x00\x00\x00\x00',
+                    'unk8a': {b'\x20\x20\x20\x20\x00\x00\x00\x00\x00\x00\x00\x00',
+                              b'\x20\x20\x20\x20BH\x00\x00\x00\x00\x00\x00'}, # C04aB
+                })
             elif self.vc_game == 4:
                 material['ptr'] = self.tell() - 0x20
                 material['flags1'] = self.read_long_le()
@@ -883,8 +932,27 @@ class ValkKFMS(ValkFile):
                 texture['ptr'] = self.tell()
             elif self.vc_game == 4:
                 texture['ptr'] = self.tell() - 0x20
-            self.read(4)
+            texture['unk0'] = self.read_long_auto()
             texture['image'] = read_image()
+            if self.vc_game == 1:
+                texture['unk1'] = self.read(2)
+                texture['unk2'] = self.read_float_auto()
+                texture['unk3a'] = self.read_word_auto()
+                texture['unk3b'] = self.read(4*3-2)
+                texture['unk4'] = self.read_float_auto()
+                texture['unk5'] = self.read_float_auto()
+                texture['unk6'] = self.read(16)
+                texture['unk7'] = self.read(16)
+                self.check_unknown_fields('texture', texture, {
+                    'unk0': {0,2,8},
+                    'unk1': b'\x00\x00',
+                    'unk2': 1,
+                    'unk3a': {1,3},
+                    'unk3b': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+                    'unk4': 1, 'unk5': 1,
+                    'unk6': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+                    'unk7': b'\x20\x20\x20\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+                })
             self.textures[texture['ptr']] = texture
 
     def link_materials(self):
@@ -965,9 +1033,9 @@ class ValkKFMG(ValkFile):
                 face_direction *= -1
                 if v1 != v2 and v2 != v3 and v3 != v1:
                     if face_direction > 0:
-                        face = [v3, v2, v1, 0]
+                        face = (v3, v2, v1)
                     else:
-                        face = [v3, v1, v2, 0]
+                        face = (v3, v1, v2)
                     faces.append(face)
                 v1 = v2
                 v2 = v3
@@ -977,56 +1045,33 @@ class ValkKFMG(ValkFile):
         bytes_per_vertex = vertex_format['bytes_per_vertex']
         if self.vc_game == 1 and bytes_per_vertex == 0x2c:
             vertex = {
-                'location_x': self.read_float_auto(),
-                'location_y': self.read_float_auto(),
-                'location_z': self.read_float_auto(),
+                'location': read_tuple(self.read_float_auto),
                 # Some kind of direction data as 4 bytes - tangent?
                 'unknown_vec': self.read(4),
-                'normal_x': self.read_half_float_auto(),
-                'normal_y': self.read_half_float_auto(),
-                'normal_z': self.read_half_float_auto(),
+                'normal': read_tuple(self.read_half_float_auto),
                 'normal_pad': self.read(2),
-                'color_r': self.read_byte() / 255,
-                'color_g': self.read_byte() / 255,
-                'color_b': self.read_byte() / 255,
-                'color_a': self.read_byte() / 255,
-                'color_r2': self.read_byte() / 255, # evmap05_02
-                'color_g2': self.read_byte() / 255,
-                'color_b2': self.read_byte() / 255,
-                'color_a2': self.read_byte() / 255,
-                'u': self.read_half_float_auto(),
-                'v': self.read_half_float_auto() * -1,
-                'u2': self.read_half_float_auto(),
-                'v2': self.read_half_float_auto() * -1,
-                'u3': self.read_half_float_auto(), # evmap18_06
-                'v3': self.read_half_float_auto() * -1,
+                'color': read_tuple(self.read_byte_factor, 4),
+                'color2': read_tuple(self.read_byte_factor, 4), # evmap05_02
+                'uv': read_tuple(self.read_half_float_auto, 2),
+                'uv2': read_tuple(self.read_half_float_auto, 2),
+                'uv3': read_tuple(self.read_half_float_auto, 2), # evmap18_06
                 }
             if vertex['normal_pad'] != b'\x00\x00':
                 print('vertex 0x2c normal_pad nonzero:', vertex)
         elif self.vc_game == 1 and bytes_per_vertex == 0x30:
             vertex = {
-                'location_x': self.read_float_auto(),
-                'location_y': self.read_float_auto(),
-                'location_z': self.read_float_auto(),
+                'location': read_tuple(self.read_float_auto),
                 'vertex_group_1': self.read_byte(),
                 'vertex_group_2': self.read_byte(),
                 'vertex_group_3': self.read_byte(),
                 'vertex_group_pad': self.read_byte(),
                 'vertex_group_weight_1': self.read_half_float_auto(),
                 'vertex_group_weight_2': self.read_half_float_auto(),
-                'color_r': self.read_byte() / 255,
-                'color_g': self.read_byte() / 255,
-                'color_b': self.read_byte() / 255,
-                'color_a': self.read_byte() / 255,
-                'u': self.read_half_float_auto(),
-                'v': self.read_half_float_auto() * -1,
-                'u2': self.read_half_float_auto(),
-                'v2': self.read_half_float_auto() * -1,
-                'u3': self.read_half_float_auto(),
-                'v3': self.read_half_float_auto() * -1,
-                'normal_x': self.read_half_float_auto(),
-                'normal_y': self.read_half_float_auto(),
-                'normal_z': self.read_half_float_auto(),
+                'color': read_tuple(self.read_byte_factor, 4),
+                'uv': read_tuple(self.read_half_float_auto, 2),
+                'uv2': read_tuple(self.read_half_float_auto, 2),
+                'uv3': read_tuple(self.read_half_float_auto, 2),
+                'normal': read_tuple(self.read_half_float_auto),
                 'normal_pad': self.read(2),
                 # Some kind of direction data as 4 bytes - tangent?
                 'unknown_vec': self.read(4),
@@ -1035,26 +1080,17 @@ class ValkKFMG(ValkFile):
                 print('vertex 0x30 normal_pad nonzero:', vertex)
         elif self.vc_game == 1 and bytes_per_vertex == 0x50:
             vertex = {
-                'location_x': self.read_float_auto(),
-                'location_y': self.read_float_auto(),
-                'location_z': self.read_float_auto(),
+                'location': read_tuple(self.read_float_auto),
                 # (0.0, 1.0, 0.0) - or maybe ([0,0,0,0], 1.0, 0.0) for vertex groups?..
                 'unknown_1a': self.read_long_auto(),
                 'unknown_1b': self.read_float_auto(),
                 'unknown_1c': self.read_long_auto(),
                 # Some kind of direction data as 4 bytes - two tangents?
                 'unknown_vec': self.read(4 * 2),
-                'normal_x': self.read_float_auto(),
-                'normal_y': self.read_float_auto(),
-                'normal_z': self.read_float_auto(),
-                'color_r': self.read_byte() / 255, # val_mp004
-                'color_g': self.read_byte() / 255,
-                'color_b': self.read_byte() / 255,
-                'color_a': self.read_byte() / 255,
-                'u': self.read_float_auto(),
-                'v': self.read_float_auto() * -1,
-                'u2': self.read_float_auto(),
-                'v2': self.read_float_auto() * -1,
+                'normal': read_tuple(self.read_float_auto),
+                'color': read_tuple(self.read_byte_factor, 4), # val_mp004
+                'uv': read_tuple(self.read_float_auto, 2),
+                'uv2': read_tuple(self.read_float_auto, 2),
                 'unknown_4': self.read(4 * 4),
                 }
             if vertex['unknown_1a'] != 0 or vertex['unknown_1b'] != 1 or vertex['unknown_1c'] != 0:
@@ -1068,9 +1104,7 @@ class ValkKFMG(ValkFile):
             vertex_begin = self.tell()
             for offset, element in struct:
                 if element == self.VERT_LOCATION:
-                    vertex['location_x'] = read_float()
-                    vertex['location_y'] = read_float()
-                    vertex['location_z'] = read_float()
+                    vertex['location'] = read_tuple(read_float)
                 elif element == self.VERT_WEIGHTS:
                     vertex['vertex_group_weight_1'] = read_float()
                     vertex['vertex_group_weight_2'] = read_float()
@@ -1081,33 +1115,23 @@ class ValkKFMG(ValkFile):
                     vertex['vertex_group_3'] = self.read_byte()
                     vertex['vertex_group_4'] = self.read_byte()
                 elif element == self.VERT_NORMAL:
-                    vertex['normal_x'] = read_float()
-                    vertex['normal_y'] = read_float()
-                    vertex['normal_z'] = read_float()
+                    vertex['normal'] = read_tuple(read_float)
                 elif element == self.VERT_UNKNOWN:
                     vertex['unknown_1'] = read_float()
                     vertex['unknown_2'] = read_float()
                     vertex['unknown_3'] = read_float()
                 elif element == self.VERT_UV1:
-                    vertex['u'] = read_float()
-                    vertex['v'] = -1 * read_float()
+                    vertex['uv'] = read_tuple(read_float, 2)
                 elif element == self.VERT_UV2:
-                    vertex['u2'] = read_float()
-                    vertex['v2'] = -1 * read_float()
+                    vertex['uv2'] = read_tuple(read_float, 2)
                 elif element == self.VERT_UV3:
-                    vertex['u3'] = read_float()
-                    vertex['v3'] = -1 * read_float()
+                    vertex['uv3'] = read_tuple(read_float, 2)
                 elif element == self.VERT_UV4:
-                    vertex['u4'] = read_float()
-                    vertex['v4'] = -1 * read_float()
+                    vertex['uv4'] = read_tuple(read_float, 2)
                 elif element == self.VERT_UV5:
-                    vertex['u5'] = read_float()
-                    vertex['v5'] = -1 * read_float()
+                    vertex['uv5'] = read_tuple(read_float, 2)
                 elif element == self.VERT_COLOR:
-                    vertex['color_r'] = read_float()
-                    vertex['color_g'] = read_float()
-                    vertex['color_b'] = read_float()
-                    vertex['color_a'] = read_float()
+                    vertex['color'] = read_tuple(read_float, 4)
                 else:
                     raise NotImplementedError('Unknown vertex data element: {}'.format(element))
             # Sometimes vertex data is padded, and bytes_per_vertex is larger
