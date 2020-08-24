@@ -539,6 +539,113 @@ class ValkKFMD(ValkFile):
                 vertex_format)
 
 
+def _make_vc1_shader_traits():
+    tex2 = 'texture1' # blend with tex alpha and LayerVSParam[1].w
+    tex3 = 'texture2' # blend with tex alpha and LayerVSParam[2].w
+    bump2 = 'normal1'
+    vc2 = 'texblend_vcolor1' # blend textures with vcolor1.xy instead of alpha
+    multex = 'texblend_mul' # multiply textures together
+    a = 'alpha'
+    ag = 'ag' # some alpha stuff
+    ls = 'ls' # hlsl shaders identical; maybe 'layer sorted' for alpha blend?
+    ns = 'no_shadow' # no crosshatching
+    lshadow = 'light_shadow' # light crosshatching
+    unlit = 'unlit' # use emission to ignore lighting
+    spec = 'specular'
+    return {
+        0: {}, # sometimes used, silence warning
+        0x100: {ls,}, # VL_UFPaintLS
+        0x101: {ls,tex2}, # VL_UFPaintLSTex2
+        0x103: {ls,bump2}, # VL_UFPaintLSTex2Bump2
+        0x104: {ls,tex2,tex3}, # VL_UFPaintLSTex3
+        0x106: {ls,tex2,vc2}, # VL_UFPaintLSTex2Vertex
+        0x107: {ls,tex2,tex3,vc2}, # VL_UFPaintLSTex3Vertex
+        0x124: {}, # VL_UFPaint
+        0x125: {tex2}, # VL_UFPaintTex2
+        0x127: {bump2}, # VL_UFPaintTex2Bump2
+        0x128: {tex2,tex3}, # VL_UFPaintTex3
+        0x130: {tex2,vc2}, # VL_UFPaintTex2Vertex
+        0x131: {tex2,tex3,vc2}, # VL_UFPaintTex3Vertex
+        0x148: {ls,a}, # VL_FPaintLS
+        0x149: {ls,a,tex2}, # VL_FPaintLSTex2
+        0x151: {ls,a,bump2}, # VL_FPaintLSTex2Bump2
+        0x152: {ls,a,tex2,tex3}, # VL_FPaintLSTex3
+        0x154: {ls,a,tex2,vc2}, # VL_FPaintLSTex2Vertex
+        0x155: {ls,a,tex2,tex3,vc2}, # VL_FPaintLSTex3Vertex
+        0x172: {a}, # VL_FPaint
+        0x173: {a,tex2}, # VL_FPaintTex2
+        0x175: {a,bump2}, # VL_FPaintTex2Bump2
+        0x176: {a,tex2,tex3}, # VL_FPaintTex3
+        0x178: {a,tex2,vc2}, # VL_FPaintTex2Vertex
+        0x179: {a,tex2,tex3,vc2}, # VL_FPaintTex3Vertex
+        0x300: {a,unlit}, # VL_Sky
+        0x301: {a,unlit,tex2}, # VL_SkyTex2
+        0x303: {a,bump2}, # VL_SkyTex2Bump2
+        0x304: {a,unlit,tex2,tex3}, # VL_SkyTex3
+        0x305: {'water',bump2}, # VL_WaterSurfaceNoReflect
+        0x306: {'water',spec,bump2}, # VL_WaterSurface
+        0x312: {a,bump2}, # vl_bullet_mark
+        0x324: {ns,a}, # VL_FPaintNS
+        0x325: {ns,a,tex2}, # VL_FPaintNSTex2
+        0x327: {ns,a,bump2}, # VL_FPaintNSTex2Bump2
+        0x328: {ns,a,tex2,tex3}, # VL_FPaintNSTex3
+        0x348: {'hair',a}, # VL_TransHair
+        0x349: {'hair',a,tex2}, # VL_TransHairTex2
+        0x351: {'hair',a,bump2,spec}, # VL_TransHairTex2Bump2
+        0x352: {'hair',a,tex3}, # VL_TransHairTex3
+        0x353: {'hair',a,bump2,spec,lshadow}, # VL_TransHairLightShadowTex2Bump2
+        0x400: {ns}, # VL_Default
+        0x401: {ns,tex2}, # VL_DefaultTex2
+        0x403: {ns,bump2}, # VL_DefaultTex2Bump2
+        0x404: {ns,tex3}, # VL_DefaultTex3
+        0x500: {ls,lshadow}, # VL_UFPaintLSNSLightShadow
+        0x501: {ls,lshadow,tex2}, # VL_UFPaintLSNSLightShadowTex2
+        0x503: {ls,lshadow,bump2}, # VL_UFPaintLSNSLightShadowTex2Bump2
+        0x504: {ls,lshadow,tex2,tex3}, # VL_UFPaintLSNSLightShadowTex3
+        0x505: {ls,lshadow,bump2,spec,'ring'}, # VL_UFPaintLSNSLightShadowTex2Bump2ring
+        0x508: {ls,lshadow,bump2,'objspace'}, # VL_UFPaintLSNSLightShadowTex2Bump2objspace
+        0x548: {a,ls,lshadow}, # VL_FPaintLSNSLightShadow
+        0x549: {a,ls,lshadow,tex2}, # VL_FPaintLSNSLightShadowTex2
+        0x551: {a,ls,lshadow,bump2}, # VL_FPaintLSNSLightShadowTex2Bump2
+        0x552: {a,ls,lshadow,tex2,tex3}, # VL_FPaintLSNSLightShadowTex3
+        0x553: {a,ls,lshadow,bump2,spec,'ring'}, # VL_FPaintLSNSLightShadowTex2Bump2ring
+        0x556: {a,ls,lshadow,bump2,'objspace'}, # VL_FPaintLSNSLightShadowTex2Bump2objspace
+        0x601: {a,multex,ls,tex2}, # vl_alphacompo_mul_lstex2
+        0x604: {a,multex,ls,tex3}, # vl_alphacompo_mul_lstex3
+        0x625: {a,multex,tex2}, # vl_alphacompo_mul_tex2
+        0x628: {a,multex,tex3}, # vl_alphacompo_mul_tex3
+        0x648: {a,ag,ls}, # VL_FPaintLSAG
+        0x649: {a,ag,ls,tex2}, # VL_FPaintLSAGTex2
+        0x651: {a,ag,ls,bump2}, # VL_FPaintLSAGTex2Bump2
+        0x652: {a,ag,ls,tex2,tex3}, # VL_FPaintLSAGTex3
+        0x672: {a,ag}, # VL_FPaintAG
+        0x673: {a,ag,tex2}, # VL_FPaintAGTex2
+        0x675: {a,ag,bump2}, # VL_FPaintAGTex2Bump2
+        0x676: {a,ag,tex2,tex3}, # VL_FPaintAGTex3
+        #0x748: {}, # VL_FPaintLSLightMap
+        #0x749: {}, # VL_FPaintLSLightMapTex2
+        #0x751: {}, # VL_FPaintLSLightMapTex2Bump2
+        #0x752: {}, # VL_FPaintLSLightMapTex3
+        #0x754: {}, # VL_FPaintLSLightMapTex2Vertex
+        #0x755: {}, # VL_FPaintLSLightMapTex3Vertex
+        #0x772: {}, # VL_FPaintLightMap
+        #0x773: {}, # VL_FPaintLightMapTex2
+        #0x775: {}, # VL_FPaintLightMapTex2Bump2
+        #0x776: {}, # VL_FPaintLightMapTex3
+        #0x778: {}, # VL_FPaintLightMapTex2Vertex
+        #0x779: {}, # VL_FPaintLightMapTex3Vertex
+        0x1148: {a,ls}, # VL_FPaintLSPrim
+        0x1172: {a}, # VL_FPaintPrim
+        0x1248: {a,ls,ns}, # VL_FPaintLSNSPrim
+        0x1272: {a,ns}, # VL_FPaintNSPrim
+        0x1400: {a,ns}, # VL_DefaultPrim
+        0x1648: {a,ls,ag}, # VL_FPaintLSAGPrim
+        0x1672: {a,ag}, # VL_FPaintAGPrim
+    }
+
+VC1_SHADER_TRAITS = _make_vc1_shader_traits()
+
+
 class ValkKFMS(ValkFile):
     # Doesn't contain other files.
     # Describes model armature, materials, meshes, and textures.
@@ -776,15 +883,15 @@ class ValkKFMS(ValkFile):
             if self.vc_game == 1:
                 material['ptr'] = self.tell()
                 material['unk1'] = self.read_long_auto()
-                material['flags'] = self.read_long_auto()
-                material['use_normal'] = bool(material['flags'] & 0x12) # 0x10 and 0x2 both seem to indicate normal maps
-                material['use_alpha'] = bool(material['flags'] & 0x40)
-                material['use_backface_culling'] = bool(material['flags'] & 0x400)
+                material['shader_id'] = sid = self.read_long_auto()
+                material['traits'] = VC1_SHADER_TRAITS.get(sid, set())
                 material['unk2a'] = self.read(4)
-                material['unk2b'] = read_tuple(self.read_byte, 4)
+                material['num_textures'] = self.read_byte()
+                material['unk2b'] = read_tuple(self.read_byte, 2)
+                material['use_backface_culling'] = self.read_byte()
                 material['texture0_ptr'] = self.read_long_auto()
                 material['texture1_ptr'] = self.read_long_auto()
-                material['unk3a'] = self.read_long_auto()
+                material['texture2_ptr'] = self.read_long_auto()
                 material['unk3b'] = self.read(4)
                 material['unk4'] = self.read(16)
                 material['unk5a'] = read_tuple(self.read_float_auto, 4)
@@ -797,8 +904,11 @@ class ValkKFMS(ValkFile):
                 material['unk7c'] = self.read(4)
                 material['unk8a'] = self.read(12)
                 material['unk8d'] = self.read_long_auto()
+                if sid not in VC1_SHADER_TRAITS:
+                    self.print_location('unexpected shader id {:x}: {}', sid, material)
                 self.check_unknown_fields('material', material, {
                     'unk2a': b'\x00\x00\x00\x00',
+                    'unk2b': {(5, 6), (5, 2)}, # evmap09_02.mxe
                     'unk3b': b'\x00\x00\x00\x00',
                     'unk4': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
                     #'unk5a': (1,1,1,1), # evmap08_01
@@ -818,9 +928,10 @@ class ValkKFMS(ValkFile):
                 material['texture_count'] = self.read_byte()
                 material['flags2'] = self.read_word_be()
                 transparency2 = material['flags2'] == 0x0201
-                material['use_transparency'] = transparency1 or transparency2
-                material['flags3'] = self.read_byte()
-                material['use_backface_culling'] = material['flags3'] == 1
+                material['traits'] = flag_set = set()
+                if transparency1 or transparency2:
+                    flag_set.add('alpha')
+                material['use_backface_culling'] = self.read_byte()
                 self.read(0x78)
                 material['texture0_ptr'] = self.read_long_long_le()
                 material['texture1_ptr'] = self.read_long_long_le()
@@ -965,11 +1076,11 @@ class ValkKFMS(ValkFile):
                 material['texture1'] = self.textures[material['texture1_ptr']]
             else:
                 material['texture1'] = None
+            if material['texture2_ptr']:
+                material['texture2'] = self.textures[material['texture2_ptr']]
+            else:
+                material['texture2'] = None
             if self.vc_game == 4:
-                if material['texture2_ptr']:
-                    material['texture2'] = self.textures[material['texture2_ptr']]
-                else:
-                    material['texture2'] = None
                 if material['texture3_ptr']:
                     material['texture3'] = self.textures[material['texture3_ptr']]
                 else:

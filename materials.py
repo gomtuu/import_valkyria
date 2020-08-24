@@ -110,14 +110,24 @@ class ImageManager:
         # Require the average to point in the right direction
         return sumvec.normalized().z > 0.8
 
+    def detect_alpha(self, image):
+        if image.channels != 4:
+            return False
+
+        if image.depth <= 24:
+            return False
+
+        return True
+
     def load_image(self, htsf_image):
-        key = sha1hash(htsf_image.dds.data)
+        data = htsf_image.dds.data
+        key = sha1hash(data)
 
         if key in self.cache:
             htsf_image.image_ref = image = self.cache[key]
             htsf_image.is_normal_map = image['valkyria_is_normal']
         else:
-            image = self.load_image_data(htsf_image.filename, htsf_image.dds.data)
+            image = self.load_image_data(htsf_image.filename, data)
             is_normal = self.detect_normal_map(image)
 
             image['valkyria_hash'] = key
@@ -126,10 +136,7 @@ class ImageManager:
             htsf_image.is_normal_map = is_normal
 
             # Keep the alpha channel separate (otherwise e.g. eyes break)
-            image.alpha_mode = 'CHANNEL_PACKED'
-
-            if is_normal:
-                image.colorspace_settings.name = 'Non-Color'
+            image.alpha_mode = 'CHANNEL_PACKED' if self.detect_alpha(image) else 'NONE'
 
 
 class NodeTreeBuilder:
@@ -235,7 +242,7 @@ class MaterialTreeBuilder(NodeTreeBuilder):
                 self.texture_images[i] = imginfo = self.texture_pack[texture['image']]
 
                 if DEBUG:
-                    tail = ' %r' % ({k:texture[k] for k in ['unk0']})
+                    tail = ''.join(' %s=%r'%(k,texture[k]) for k in ['unk0', 'unk3a'] if k in texture)
                 else:
                     tail = ''
 
@@ -261,46 +268,138 @@ class MaterialTreeBuilder(NodeTreeBuilder):
         cur_x -= self.colsize
         cur_socket = self.node_main.inputs['Base Color']
 
+        # Multiply by the main vertex color if present
+        self.node_mix_vcolor = None
+
         if 0 in self.vertex_colors:
-            node_mix = self.mknode('ShaderNodeMixRGB', cur_x, cur_y, blend_type='MULTIPLY')
+            self.node_mix_vcolor = node_mix = self.mknode(
+                'ShaderNodeMixRGB', cur_x, cur_y, blend_type='MULTIPLY'
+            )
             node_color = self.mknode(
                 'ShaderNodeVertexColor',
                 cur_x - self.colsize, cur_y + self.rowsize,
                 layer_name='Color-0'
             )
-            self.link(node_color, 0, node_mix, 1)
+            self.link(node_color, 0, node_mix, 2)
             self.link_out(node_mix, 0, cur_socket)
             self.link_in(node_mix, 0, 1.0)
             cur_socket = node_mix.inputs[1]
+            cur_x -= self.colsize
 
+        # Create nodes for the vertex color used for blending textures
+        use_mul_blend = 'texblend_mul' in self.info['traits']
+        tex_blend_type = 'MULTIPLY' if use_mul_blend else 'MIX'
+
+        use_vc_blend = not use_mul_blend and 'texblend_vcolor1' in self.info['traits']
+
+        if use_vc_blend and 1 in self.vertex_colors:
+            vc_x = self.tex_x - self.colsize
+            vc_y = self.out_y + self.colsize
+            node_vc_blend_split = self.mknode('ShaderNodeSeparateRGB', vc_x, vc_y)
+            node_vc_blend_color = self.mknode('ShaderNodeVertexColor', vc_x - self.colsize, vc_y, layer_name='Color-1')
+            self.link(node_vc_blend_color, 0, node_vc_blend_split, 0)
+            vc_blend_factors = node_vc_blend_split.outputs
+        else:
+            vc_blend_factors = (1,1,1)
+
+        # Link the extra textures
+        if 'texture2' in self.info['traits'] and 2 in self.texture_nodes:
+            node_mix = self.mknode('ShaderNodeMixRGB', cur_x, cur_y, blend_type=tex_blend_type)
+            self.link_out(node_mix, 0, cur_socket)
+            if use_mul_blend:
+                self.link_in(node_mix, 0, 1)
+            elif use_vc_blend:
+                self.link_in(node_mix, 0, vc_blend_factors[1])
+            else:
+                self.link(self.texture_nodes[2], 1, node_mix, 0)
+            self.link(self.texture_nodes[2], 0, node_mix, 2)
+            cur_socket = node_mix.inputs[1]
+            cur_x -= self.colsize
+
+        if 'texture1' in self.info['traits'] and 1 in self.texture_nodes:
+            node_mix = self.mknode('ShaderNodeMixRGB', cur_x, cur_y, blend_type=tex_blend_type)
+            self.link_out(node_mix, 0, cur_socket)
+            if use_mul_blend:
+                self.link_in(node_mix, 0, 1)
+            elif use_vc_blend:
+                self.link_in(node_mix, 0, vc_blend_factors[0])
+            else:
+                self.link(self.texture_nodes[1], 1, node_mix, 0)
+            self.link(self.texture_nodes[1], 0, node_mix, 2)
+            cur_socket = node_mix.inputs[1]
+            cur_x -= self.colsize
+
+        # Link the primary texture
         if 0 in self.texture_nodes:
             self.link_out(self.texture_nodes[0], 0, cur_socket)
 
-            if self.info['use_alpha']:
+            if 'alpha' in self.info['traits'] and self.texture_nodes[0].image.alpha_mode != 'NONE':
                 self.link(self.texture_nodes[0], 1, self.node_main, 'Alpha')
-                self.material.blend_method = 'CLIP'
                 self.material.shadow_method = 'CLIP'
+                if 'ls' in self.info['traits']: # just a guess
+                    self.material.blend_method = 'BLEND'
+                else:
+                    self.material.blend_method = 'CLIP'
 
     def build_normal(self):
+        self.node_normal = None
+
         for i, texnode in self.texture_nodes.items():
             if self.texture_images[i].is_normal_map:
-                node_normal = self.mknode(
-                    'ShaderNodeNormalMap',
-                    texnode.location.x + self.colsize_tex, texnode.location.y,
-                    uv_map='UVMap-{}'.format(i)
-                )
-                self.link(texnode, 0, node_normal, 'Color')
-                self.link(node_normal, 0, self.node_main, 'Normal')
-                break
+                if i != 1:
+                    print('Material {}: texture {} is normal'.format(self.material.name, i))
+                elif 'normal1' not in self.info['traits']:
+                    print('Material {}: normal not expected'.format(self.material.name))
+
+        if 'normal1' in self.info['traits'] and 1 in self.texture_nodes:
+            self.texture_nodes[1].image.colorspace_settings.name = 'Non-Color'
+            self.node_normal = node_normal = self.mknode(
+                'ShaderNodeNormalMap',
+                texnode.location.x + self.colsize_tex, texnode.location.y,
+                uv_map='UVMap-{}'.format(1)
+            )
+            self.link(texnode, 0, node_normal, 'Color')
+            self.link(node_normal, 0, self.node_main, 'Normal')
 
     def build_backface_cull(self):
-        if self.info["use_backface_culling"]:
+        if self.info['use_backface_culling']:
             self.material.use_backface_culling = True
 
             old_out = self.node_out
             self.node_out = self.make_group_node('BackfaceCullOutput', self.out_x, self.out_y)
             self.copy_link_in(self.node_out, 0, old_out, 0)
             self.tree.nodes.remove(old_out)
+
+    def switch_to_emission(self, base_color):
+        self.copy_link_in(self.node_main, 'Emission', self.node_main, 'Base Color')
+        self.tree.links.remove(self.node_main.inputs['Base Color'].links[0])
+        self.link_in(self.node_main, 'Base Color', base_color)
+
+    def build_water(self):
+        self.link_in(self.node_main, 'Roughness', 0)
+
+        if self.node_normal:
+            self.link_in(self.node_normal, 'Strength', 0.1)
+
+        if 'specular' in self.info['traits']:
+            self.link_in(self.node_main, 'Transmission', 1)
+            self.link_in(self.node_main, 'IOR', 1.33)
+
+            self.switch_to_emission((0.8,0.8,0.8))
+
+            if self.node_mix_vcolor:
+                self.node_mix_vcolor.blend_type = 'MIX'
+                self.link_in(self.node_mix_vcolor, 0, 0.5)
+
+            self.material.use_screen_refraction = True
+            self.owner.vscene.scene.eevee.use_ssr = True
+            self.owner.vscene.scene.eevee.use_ssr_refraction = True
+
+        else:
+            if self.node_mix_vcolor:
+                self.node_mix_vcolor.blend_type = 'MIX'
+                self.link_in(self.node_mix_vcolor, 0, 0)
+
 
     def build(self):
         self.clear_tree()
@@ -309,6 +408,14 @@ class MaterialTreeBuilder(NodeTreeBuilder):
         self.build_color()
         self.build_normal()
         self.build_backface_cull()
+
+        if 'water' in self.info['traits']:
+            self.build_water()
+        else:
+            if 'specular' not in self.info['traits']:
+                self.link_in(self.node_main, 'Specular', 0)
+            if 'unlit' in self.info['traits']:
+                self.switch_to_emission((0,0,0))
 
         self.deselect_all()
 
@@ -389,12 +496,14 @@ class MaterialBuilder:
 
         if DEBUG:
             blocklist = {
-                'id', 'ptr', 'use_backface_culling', 'use_alpha', 'use_normal',
+                'id', 'ptr', 'use_backface_culling', 'num_textures',
                 'texture0_ptr', 'texture1_ptr', 'texture2_ptr', 'texture3_ptr', 'texture4_ptr'
             }
 
             for key, val in matdata.items():
                 if key not in blocklist and isinstance(val, (int, float, tuple)):
                     mat[key] = val
+
+            mat['traits'] = ','.join(sorted(matdata.get('traits',[])))
 
         return mat
