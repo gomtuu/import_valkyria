@@ -42,18 +42,18 @@ class ImageManager:
             return None
 
         is_windows = platform.system().lower().startswith('win')
-        dds_dir = os.path.dirname(dds_path)
+        dds_dir, dds_file = os.path.split(dds_path)
         png_path = dds_path[0:-4] + '.PNG'
 
         if is_windows:
-            if subprocess.call([texconv, '-o', dds_dir, '-ft', 'png', dds_path], cwd=tdir) != 0:
+            if subprocess.call([texconv, '-ft', 'png', dds_file], cwd=dds_dir) != 0:
                 print('Could not convert {} to PNG'.format(dds_path))
                 return None
         else:
             # Saving PNG is broken in Wine, so go in two steps via TGA
             tga_path = dds_path[0:-4] + '.TGA'
             try:
-                if subprocess.call(['wine', texconv, '-o', dds_dir, '-ft', 'tga', dds_path], cwd=tdir) != 0:
+                if subprocess.call(['wine', texconv, '-ft', 'tga', dds_file], cwd=dds_dir) != 0:
                     print('Could not convert {} to TGA'.format(dds_path))
                     return None
 
@@ -496,13 +496,17 @@ class MaterialBuilder:
 
         if DEBUG:
             blocklist = {
-                'id', 'ptr', 'use_backface_culling', 'num_textures',
-                'texture0_ptr', 'texture1_ptr', 'texture2_ptr', 'texture3_ptr', 'texture4_ptr'
+                'id', 'ptr', 'use_backface_culling', 'num_textures', 'num_parameters', 'shader_hash',
+                'texture0_ptr', 'texture1_ptr', 'texture2_ptr', 'texture3_ptr', 'texture4_ptr',
+                'parameter_ptr',
             }
 
             for key, val in matdata.items():
-                if key not in blocklist and isinstance(val, (int, float, tuple)):
+                if key not in blocklist and isinstance(val, (int, float, tuple, str)):
                     mat[key] = val
+
+            for param in matdata.get('parameters',[]):
+                mat[param.name] = param.data
 
             mat['traits'] = ','.join(sorted(matdata.get('traits',[])))
 

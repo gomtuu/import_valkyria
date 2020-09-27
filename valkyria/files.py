@@ -1,17 +1,32 @@
 #!/usr/bin/python3
 
 import struct
+import collections
 
 DEBUG = False
 
 def read_tuple(fn, count=3):
     return tuple(fn() for i in range(count))
 
+def is_zero_bytes(data):
+    return data == b'\x00' * len(data)
+
+def hash_fnv1a64(string):
+    hashval = 0xcbf29ce484222325
+    for c in string:
+        hashval = ((hashval ^ ord(c)) * 0x100000001B3) & 0xffffffffffffffff
+    return hashval
+
+
 class InfoDict(dict):
     "Dictionary that allows access to contents as fields."
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__dict__ = self
+
+    def update_fields(self, **kwargs):
+        "data.update_fields(foo=1, bar=2 ...)"
+        self.update(kwargs)
 
 
 class ValkFile:
@@ -38,6 +53,12 @@ class ValkFile:
         if getattr(self, 'vc_game', 1) == 4:
             pointer += self.header_length
         return self.seek(pointer)
+
+    def tell_ptr(self):
+        pointer = self.tell()
+        if getattr(self, 'vc_game', 1) == 4:
+            pointer -= self.header_length
+        return pointer
 
     def tell(self):
         return self.F.tell() - self.offset
@@ -234,13 +255,27 @@ class ValkFile:
 
     def skip_zero(self, size):
         data = self.read(size)
-        if data != b'\x00' * size:
+        if not is_zero_bytes(data):
             self.print_location('expected zero bytes, found: {}', data)
 
     def check_unknown_fields(self, name, data, pattern):
+        "Checks that fields in data have expected values. Use to detect when unknown fields change."
+        # Fields named 'pad...' should be zero bytes
+        if isinstance(data, dict):
+            for k, curval in list(data.items()):
+                if k.startswith('pad'):
+                    assert k not in pattern
+                    if is_zero_bytes(curval):
+                        del data[k]
+                    else:
+                        self.print_location('unexpected nonzero {} [{}]: value is {}\n{}', name, k, curval, data)
+        # Check values using pattern
         for k, v in pattern.items():
             if isinstance(v, set):
                 if data[k] in v:
+                    continue
+            elif callable(v):
+                if v(data[k]):
                     continue
             else:
                 if data[k] == v:
@@ -341,7 +376,51 @@ class ValkKFSH(ValkFile):
             shape_key['vc_game'] = kfsg.vc_game
 
 
-class ValkKFSS(ValkFile):
+VFormatField = collections.namedtuple('VFormatField', ['offset', 'info_type', 'data_type', 'value_count'])
+
+class VC4VertexFormatMixin:
+    VERT_LOCATION = (0x1, 0xa, 0x3)
+    VERT_WEIGHTS = (0x2, 0xa, 0x3)
+    VERT_GROUPS = (0x3, 0x1, 0x4)
+    VERT_NORMAL= (0x4, 0xa, 0x3)
+    VERT_UNKNOWN = (0x5, 0xa, 0x3)
+    VERT_UV1 = (0x7, 0xa, 0x2)
+    VERT_UV2 = (0x8, 0xa, 0x2)
+    VERT_UV3 = (0x9, 0xa, 0x2)
+    VERT_UV4 = (0xa, 0xa, 0x2)
+    VERT_UV5 = (0xb, 0xa, 0x2)
+    VERT_COLOR = (0xf, 0xa, 0x4)
+
+    def read_vformat_spec(self):
+        entry = InfoDict(
+            id_hash     = self.read_long_long_le(),
+            field_count = self.read_long_le(),
+            total_bytes = self.read_long_le(),
+            name        = self.read_string_buffer(32),
+            field_ptr   = self.read_long_long_le(),
+            padding     = self.read(8 + 16),
+        )
+        return entry
+
+    def read_vformat_field(self):
+        entry = VFormatField(
+            self.read_long_le(), # bytes before this item in the struct
+            self.read_long_le(), # info type: Position, Normal, Color, UV, Weights
+            self.read_long_le(), # data type: 0x1 = Byte, 0xa = Float
+            self.read_long_le(), # value count: 2 (u,v) or 3 (x,y,z) or 4 (r,g,b,a)
+        )
+        self.check_unknown_fields('vformat field', entry, {
+            2: {1, 10},
+            3: {1, 2, 3, 4},
+        })
+        return entry
+
+    def read_vformat_fields(self, vformat):
+        self.follow_ptr(vformat.field_ptr)
+        vformat.fields = [ self.read_vformat_field() for i in range(vformat.field_count) ]
+
+
+class ValkKFSS(ValkFile, VC4VertexFormatMixin):
     # Doesn't contain other files.
     # Describes shape keys
     def read_toc(self):
@@ -466,13 +545,9 @@ class ValkKFSS(ValkFile):
         self.read_skip_lists()
 
 
-class ValkKFSG(ValkFile):
+class ValkKFSG(ValkFile, VC4VertexFormatMixin):
     # Doesn't contain other files.
     # Holds shape key data
-    VERT_LOCATION = (0x1, 0xa, 0x3)
-    VERT_NORMAL= (0x4, 0xa, 0x3)
-    VERT_UV1 = (0x7, 0xa, 0x2)
-
     def read_data(self):
         if self.vc_game == 1:
             read_float = self.read_float_be
@@ -554,7 +629,7 @@ class ValkKFMD(ValkFile):
                 vertex_format)
 
 
-def _make_vc1_shader_traits():
+def _make_shader_traits():
     tex2 = 'texture1' # blend with tex alpha and LayerVSParam[1].w
     tex3 = 'texture2' # blend with tex alpha and LayerVSParam[2].w
     bump2 = 'normal1'
@@ -567,7 +642,8 @@ def _make_vc1_shader_traits():
     lshadow = 'light_shadow' # light crosshatching
     unlit = 'unlit' # use emission to ignore lighting
     spec = 'specular'
-    return {
+    # Valkyria Chronicles 1 shader table
+    vc1_traits = {
         0: {}, # sometimes used, silence warning
         0x100: {ls,}, # VL_UFPaintLS
         0x101: {ls,tex2}, # VL_UFPaintLSTex2
@@ -657,11 +733,224 @@ def _make_vc1_shader_traits():
         0x1648: {a,ls,ag}, # VL_FPaintLSAGPrim
         0x1672: {a,ag}, # VL_FPaintAGPrim
     }
+    # Valkyria Chronicles 4 shader table (None entries provide just the name)
+    vc4_traits = {
+        'cri_mana_h264_miyako': None,
+        'cri_mana_sofdec_prime_alpha_miyako': None,
+        'cri_mana_sofdec_prime_miyako': None,
+        'fen_char_t1': None,
+        'fen_char_t1_eye': None,
+        'fen_char_t1_eye_pm': None,
+        'fen_char_t1_hair': None,
+        'fen_char_t1_hair_pm': None,
+        'fen_char_t1_pm': None,
+        'fen_char_t1_skin': None,
+        'fen_char_t1_skin_pm': None,
+        'fen_char_t2': None,
+        'fen_char_t2_decare': None,
+        'fen_char_t2_decare_add': None,
+        'fen_char_t2_pm': None,
+        'fen_char_t2_skin': None,
+        'fen_char_t3': None,
+        'fen_char_t3_pm': None,
+        'fen_char_t4': None,
+        'fen_char_t4_pm': None,
+        'fen_height_base_t1': None,
+        'fen_height_base_t1_c4': None,
+        'fen_height_base_t1_pt': None,
+        'fen_height_base_t1_pt_c4': None,
+        'fen_height_base_t1t': None,
+        'fen_height_base_t1t_pt': None,
+        'fen_height_base_t2': None,
+        'fen_height_base_t2_c4': None,
+        'fen_height_base_t2_pt': None,
+        'fen_height_base_t2_pt_c4': None,
+        'fen_height_base_t2t': None,
+        'fen_height_base_t2t_pt': None,
+        'fen_height_base_t3': None,
+        'fen_height_base_t3_c4': None,
+        'fen_height_base_t3_pt': None,
+        'fen_height_base_t3_pt_c4': None,
+        'fen_height_base_t4': None,
+        'fen_height_base_t4_pt': None,
+        'fen_height_base_t5': None,
+        'fen_height_base_t5_pt': None,
+        'fen_height_map_t1': None,
+        'fen_height_map_t1_c4': None,
+        'fen_height_map_t1_pt': None,
+        'fen_height_map_t1_pt_c4': None,
+        'fen_height_map_t1t': None,
+        'fen_height_map_t1t_pt': None,
+        'fen_height_map_t2': None,
+        'fen_height_map_t2_c4': None,
+        'fen_height_map_t2_pt': None,
+        'fen_height_map_t2_pt_c4': None,
+        'fen_height_map_t2t': None,
+        'fen_height_map_t2t_pt': None,
+        'fen_height_map_t3': None,
+        'fen_height_map_t3_c4': None,
+        'fen_height_map_t3_pt': None,
+        'fen_height_map_t3_pt_c4': None,
+        'fen_height_map_t4': None,
+        'fen_height_map_t4_pt': None,
+        'fen_height_map_t5': None,
+        'fen_height_map_t5_pt': None,
+        'fen_map_ice_t2': None,
+        'fen_map_ice_t2_dm': None,
+        'fen_map_ice_t2_dm_ws': None,
+        'fen_map_ice_t2_lm': None,
+        'fen_map_ice_t2_lm_ta': None,
+        'fen_map_ice_t2_lm_va': None,
+        'fen_map_ice_t2_parallax': None,
+        'fen_map_ice_t2_parallax_lm': None,
+        'fen_map_ice_t2_parallax_lm_ta': None,
+        'fen_map_ice_t2_parallax_lm_va': None,
+        'fen_map_ice_t2_parallax_pm': None,
+        'fen_map_ice_t2_parallax_ta': None,
+        'fen_map_ice_t2_parallax_ta_pm': None,
+        'fen_map_ice_t2_parallax_va': None,
+        'fen_map_ice_t2_parallax_va_pm': None,
+        'fen_map_ice_t2_pm': None,
+        'fen_map_ice_t2_ta': None,
+        'fen_map_ice_t2_ta_pm': None,
+        'fen_map_ice_t2_va': None,
+        'fen_map_ice_t2_va_pm': None,
+        'fen_map_ice_t2_ws': None,
+        'fen_map_ice_t3': None,
+        'fen_map_ice_t3_dm': None,
+        'fen_map_ice_t3_lm': None,
+        'fen_map_ice_t3_parallax': None,
+        'fen_map_ice_t3_parallax_dm': None,
+        'fen_map_ice_t3_parallax_dm_ws': None,
+        'fen_map_ice_t3_parallax_lm': None,
+        'fen_map_sky_t1': None,
+        'fen_map_sky_t2': None,
+        'fen_map_t1': None,
+        'fen_map_t1_lm': None,
+        'fen_map_t1_lm_pm': None,
+        'fen_map_t1_pm': None,
+        'fen_map_t2': None,
+        'fen_map_t2_decare': None,
+        'fen_map_t2_decare_lm': None,
+        'fen_map_t2_decare_lm_pm': None,
+        'fen_map_t2_decare_pm': None,
+        'fen_map_t2_footprint': None,
+        'fen_map_t2_footprint_lm': None,
+        'fen_map_t2_footprint_lm_pm': None,
+        'fen_map_t2_footprint_pm': None,
+        'fen_map_t2_lm': None,
+        'fen_map_t2_lm_pm': None,
+        'fen_map_t2_pm': None,
+        'fen_map_t3_decare': None,
+        'fen_map_t3_decare_pm': None,
+        'fen_map_t4_decare': None,
+        'fen_map_t4_decare_pm': None,
+        'fen_map_water': None,
+        'fen_map_water_pm': None,
+        'fen_prim_bright_pixel': None,
+        'fen_prim_compo_height_map': None,
+        'fen_prim_copy': None,
+        'fen_prim_copy_a2': None,
+        'fen_prim_decode_shadow': None,
+        'fen_prim_decode_z': None,
+        'fen_prim_dof_add': None,
+        'fen_prim_edge': None,
+        'fen_prim_edge2': None,
+        'fen_prim_edge_noise': None,
+        'fen_prim_frame_add': None,
+        'fen_prim_fxaa': None,
+        'fen_prim_gauss_x': None,
+        'fen_prim_gauss_y': None,
+        'fen_prim_glare_add': None,
+        'fen_prim_height_map_base_pc': None,
+        'fen_prim_height_map_pc': None,
+        'fen_prim_make_height_map_depth': None,
+        'fen_prim_pct_ad': None,
+        'fen_prim_pre_frame_add': None,
+        'fen_prim_refraction': None,
+        'fen_prim_shadeoff': None,
+        'fen_prim_shadeoff_2p': None,
+        'fen_prim_shadow_add': None,
+        'fen_prim_shadow_gauss_x': None,
+        'fen_prim_shadow_gauss_y': None,
+        'fen_prim_shadow_pixel': None,
+        'fen_prim_ssao': None,
+        'fen_prim_t1_sp': None,
+        'fen_prim_t2': None,
+        'fen_prim_t2_add': None,
+        'fen_prim_t2_add_sp': None,
+        'fen_prim_t2_sp': None,
+        'fen_prim_wind_map_t1': None,
+        'fen_prim_wind_map_t2': None,
+        'fen_refraction': None,
+        'fen_shadow_t1': None,
+        'fen_shadow_t1_c4': None,
+        'fen_shadow_t1_pt': None,
+        'fen_shadow_t1_pt_c4': None,
+        'fen_shadow_t1t': None,
+        'fen_shadow_t1t_pt': None,
+        'fen_shadow_t2': None,
+        'fen_shadow_t2_c4': None,
+        'fen_shadow_t2_pt': None,
+        'fen_shadow_t2_pt_c4': None,
+        'fen_shadow_t2t': None,
+        'fen_shadow_t2t_pt': None,
+        'fen_shadow_t3': None,
+        'fen_shadow_t3_c4': None,
+        'fen_shadow_t3_pt': None,
+        'fen_shadow_t3_pt_c4': None,
+        'fen_shadow_t4': None,
+        'fen_shadow_t4_pt': None,
+        'fen_shadow_t5': None,
+        'fen_shadow_t5_pt': None,
+        'fen_t1': None,
+        'fen_t1_ad': None,
+        'fen_t1_invalid_light': None,
+        'fen_t1_invalid_light_ad': None,
+        'fen_t1_invalid_light_sp': None,
+        'fen_t1_sp': None,
+        'fen_t2': None,
+        'fen_t2_ad': None,
+        'fen_t2_alpha_compo': None,
+        'fen_t2_alpha_compo_invalid_light': None,
+        'fen_t2_alpha_compo_invalid_light_sp': None,
+        'fen_t2_alpha_compo_sp': None,
+        'fen_t2_invalid_light': None,
+        'fen_t2_invalid_light_ad': None,
+        'fen_t2_invalid_light_sp': None,
+        'fen_t2_sp': None,
+        'fen_warp_t1': None,
+        'fen_warp_t1_invalid_light': None,
+        'fen_warp_t1_invalid_light_sp': None,
+        'fen_warp_t1_sp': None,
+        'fen_wind_map_t1': None,
+        'fen_wind_map_t1_conv': None,
+        'fen_wind_map_t2': None,
+        'fen_wind_map_t2_conv': None,
+        'fen_wind_map_t3': None,
+        'fen_wind_map_t3_conv': None,
+        'fen_wind_map_t4': None,
+        'fen_wind_map_t4_conv': None,
+        'kf_prim_pc': None,
+        'kf_prim_pct': None,
+        'kf_prim_pct2': None,
+        'kf_prim_pctwh': None,
+        'kf_prim_pnc': None,
+        'kf_prim_pnct': None,
+        'kf_prim_pntct2': None,
+        'ui_blend_miyako': None,
+        'ui_blur_miyako': None,
+        'ui_blur_tmp_miyako': None,
+        'ui_color_miyako': None,
+        'ui_flash_back_miyako': None,
+        'ui_mask_miyako': None,
+    }
+    vc4_names = { hash_fnv1a64(name): name for name in vc4_traits.keys() }
+    return vc1_traits, vc4_traits, vc4_names
 
-VC1_SHADER_TRAITS = _make_vc1_shader_traits()
+VC1_SHADER_TRAITS, VC4_SHADER_TRAITS, VC4_SHADER_NAMES = _make_shader_traits()
 
-
-class ValkKFMS(ValkFile):
+class ValkKFMS(ValkFile, VC4VertexFormatMixin):
     # Doesn't contain other files.
     # Describes model armature, materials, meshes, and textures.
     def read_toc(self):
@@ -732,47 +1021,30 @@ class ValkKFMS(ValkFile):
             self.vertex_formats = []
             self.mesh_info_ptr = self.read_long_auto()
 
+    def read_kfmg_info_struct(self):
+        entry = InfoDict(
+            unk_hash         = self.read_long_auto(),
+            bytes_per_vertex = self.read_long_auto(),
+            face_ptr         = self.read_long_auto(),
+            face_count       = self.read_long_auto(),
+            vertex_ptr       = self.read_long_auto(),
+            vertex_count     = self.read_long_auto(),
+            padding          = self.read(8),
+        )
+        if self.vc_game == 4:
+            entry.update_fields(
+                vformat          = self.read_vformat_spec(),
+                padding2         = self.read(16),
+            )
+        self.check_unknown_fields('kfmg_info', entry, {})
+        return entry
+
     def read_kfmg_info(self):
         self.follow_ptr(self.mesh_info_ptr)
-        if self.vc_game == 4:
-            for i in range(self.vertex_format_count):
-                self.follow_ptr(self.mesh_info_ptr + 0x80 * i)
-                self.read(4)
-                vertex_format = {
-                    'bytes_per_vertex': self.read_long_le(),
-                    'face_ptr': self.read_long_le(),
-                    'face_count': self.read_long_le(),
-                    'vertex_ptr': self.read_long_le(),
-                    'vertex_count': self.read_long_le(),
-                    }
-                self.read(0x10)
-                struct_def_row_count = self.read_long_le()
-                if struct_def_row_count:
-                    vertex_format['struct_def'] = []
-                self.read(0x24)
-                struct_def_ptr = self.read_long_long_le()
-                self.follow_ptr(struct_def_ptr)
-                for j in range(struct_def_row_count):
-                    offset = self.read_long_le() # bytes before this item in the struct
-                    struct_row = (
-                        offset, (
-                        self.read_long_le(), # info type: Position, Normal, Color, UV, Weights
-                        self.read_long_le(), # data type: 0x1 = Byte, 0xa = Float
-                        self.read_long_le() # value count: 2 (u,v) or 3 (x,y,z) or 4 (r,g,b,a)
-                        ))
-                    vertex_format['struct_def'].append(struct_row)
-                self.vertex_formats.append(vertex_format)
-        else:
-            self.read(4)
-            self.vertex_formats.append({
-                'bytes_per_vertex': self.read_long_auto(),
-                'face_ptr': self.read_long_auto(),
-                'face_count': self.read_long_auto(),
-                'vertex_ptr': self.read_long_auto(),
-                'vertex_count': self.read_long_auto(),
-                })
-            self.read(4)
-            self.read(4)
+        self.vertex_formats = [ self.read_kfmg_info_struct() for i in range(getattr(self, 'vertex_format_count')) ]
+        for fmt in self.vertex_formats:
+            if 'vformat' in fmt:
+                self.read_vformat_fields(fmt.vformat)
 
     def read_bone_list(self):
         self.follow_ptr(self.bone_list_ptr)
@@ -885,75 +1157,125 @@ class ValkKFMS(ValkFile):
                 (read_float(), read_float(), read_float(), read_float())
                 )
 
-    def read_material_list(self):
-        self.materials = {}
+    def read_material_struct(self):
         if self.vc_game == 1:
-            item_length = 0xa0
-        elif self.vc_game == 4:
-            item_length = 0xf0
-        for i in range(self.material_count):
-            self.follow_ptr(self.material_list_ptr + i * item_length)
-            material = {}
-            material['id'] = i
-            if self.vc_game == 1:
-                material['ptr'] = self.tell()
-                material['unk1'] = self.read_long_auto()
-                material['shader_id'] = sid = self.read_long_auto()
-                material['traits'] = VC1_SHADER_TRAITS.get(sid, set())
-                material['unk2a'] = self.read(4)
-                material['num_textures'] = self.read_byte()
-                material['unk2b'] = read_tuple(self.read_byte, 2)
-                material['use_backface_culling'] = self.read_byte()
-                material['texture0_ptr'] = self.read_long_auto()
-                material['texture1_ptr'] = self.read_long_auto()
-                material['texture2_ptr'] = self.read_long_auto()
-                material['unk3b'] = self.read(4)
-                material['unk4'] = self.read(16)
-                material['unk5a'] = read_tuple(self.read_float_auto, 4)
-                material['unk5b'] = read_tuple(self.read_float_auto, 4)
-                material['unk5c'] = read_tuple(self.read_float_auto, 4)
-                material['unk5d'] = read_tuple(self.read_float_auto, 4)
-                material['unk6'] = self.read(16)
-                material['unk7a'] = self.read(8)
-                material['unk7b'] = self.read_long_auto()
-                material['unk7c'] = self.read(4)
-                material['unk8a'] = self.read(12)
-                material['unk8d'] = self.read_long_auto()
-                if sid not in VC1_SHADER_TRAITS:
-                    self.print_location('unexpected shader id {:x}: {}', sid, material)
-                self.check_unknown_fields('material', material, {
-                    'unk2a': b'\x00\x00\x00\x00',
-                    'unk2b': {(5, 6), (5, 2)}, # evmap09_02.mxe
-                    'unk3b': b'\x00\x00\x00\x00',
-                    'unk4': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-                    #'unk5a': (1,1,1,1), # evmap08_01
-                    'unk5b': (0,0,0,1),
-                    #'unk5c': (1,1,1,0), # evmap08_01
-                    #'unk5d': (0,0,0,1), # C04aB evmap08_01
-                    'unk6': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-                    'unk7a': b'\x00\x00\x00\x00\x00\x00\x00\x00',
-                    'unk7c': b'\x00\x00\x00\x00',
-                    'unk8a': {b'\x20\x20\x20\x20\x00\x00\x00\x00\x00\x00\x00\x00',
-                              b'\x20\x20\x20\x20BH\x00\x00\x00\x00\x00\x00'}, # C04aB
-                })
-            elif self.vc_game == 4:
-                material['ptr'] = self.tell() - 0x20
-                material['flags1'] = self.read_long_le()
-                transparency1 = material['flags1'] in [0x05, 0x21]
-                material['texture_count'] = self.read_byte()
-                material['flags2'] = self.read_word_be()
-                transparency2 = material['flags2'] == 0x0201
-                material['traits'] = flag_set = set()
-                if transparency1 or transparency2:
-                    flag_set.add('alpha')
-                material['use_backface_culling'] = self.read_byte()
-                self.read(0x78)
-                material['texture0_ptr'] = self.read_long_long_le()
-                material['texture1_ptr'] = self.read_long_long_le()
-                material['texture2_ptr'] = self.read_long_long_le()
-                material['texture3_ptr'] = self.read_long_long_le()
-                material['texture4_ptr'] = self.read_long_long_le()
-            self.materials[material['ptr']] = material
+            material = InfoDict(
+                ptr                  = self.tell_ptr(),
+                unk1                 = self.read_long_auto(),
+                shader_id            = self.read_long_auto(),
+                pad2a                = self.read(4),
+                num_textures         = self.read_byte(),
+                unk2b                = read_tuple(self.read_byte, 2),
+                use_backface_culling = self.read_byte(),
+                texture0_ptr         = self.read_long_auto(),
+                texture1_ptr         = self.read_long_auto(),
+                texture2_ptr         = self.read_long_auto(),
+                pad3b                = self.read(4),
+                pad4                 = self.read(16),
+                unk5a                = read_tuple(self.read_float_auto, 4),
+                unk5b                = read_tuple(self.read_float_auto, 4),
+                unk5c                = read_tuple(self.read_float_auto, 4),
+                unk5d                = read_tuple(self.read_float_auto, 4),
+                pad6                 = self.read(16),
+                pad7a                = self.read(8),
+                unk7b                = self.read_long_auto(),
+                pad7c                = self.read(4),
+                unk8a                = self.read(12),
+                unk8d                = self.read_long_auto(),
+            )
+            self.check_unknown_fields('material', material, {
+                'unk2b': {(5, 6), (5, 2)}, # evmap09_02.mxe
+                #'unk5a': (1,1,1,1), # evmap08_01
+                'unk5b': (0,0,0,1),
+                #'unk5c': (1,1,1,0), # evmap08_01
+                #'unk5d': (0,0,0,1), # C04aB evmap08_01
+                'unk8a': {b'\x20\x20\x20\x20\x00\x00\x00\x00\x00\x00\x00\x00',
+                          b'\x20\x20\x20\x20BH\x00\x00\x00\x00\x00\x00'}, # C04aB
+            })
+            sid = material.shader_id
+            material.traits = VC1_SHADER_TRAITS.get(sid, set())
+            if sid not in VC1_SHADER_TRAITS:
+                self.print_location('unexpected shader id {:x}: {}', sid, material)
+        else:
+            material = InfoDict(
+                ptr                  = self.tell_ptr(),
+                flags1               = self.read_long_auto(),
+                num_textures         = self.read_byte(),
+                unk2b                = read_tuple(self.read_byte, 2),
+                use_backface_culling = self.read_byte(),
+                shader_hash          = self.read_long_long_le(),
+                unk3a                = self.read_long_long_le(),
+                unk3b                = self.read_long_long_le(),
+                pad4a                = self.read(4),
+                unk4b                = self.read(4),
+                unk4c                = self.read_float_auto(),
+                pad4da               = self.read(1),
+                num_parameters       = self.read_byte(),
+                pad4dc               = self.read(2),
+                unk5a                = read_tuple(self.read_float_auto, 4),
+                unk5b                = read_tuple(self.read_float_auto, 4),
+                unk5c                = read_tuple(self.read_float_auto, 4),
+                unk5d                = read_tuple(self.read_float_auto, 4),
+                parameter_ptr        = self.read_long_long_le(), # named uniforms
+                pad6c                = self.read(8),
+                texture0_ptr         = self.read_long_long_le(),
+                texture1_ptr         = self.read_long_long_le(),
+                texture2_ptr         = self.read_long_long_le(),
+                texture3_ptr         = self.read_long_long_le(),
+                texture4_ptr         = self.read_long_long_le(),
+                padding              = self.read(0x48),
+            )
+            self.check_unknown_fields('material', material, {
+                'unk2b': {(5,6), (5,2), (2,1)},
+                'unk3a': set(range(10)),
+                'unk3b': set(range(3)),
+                'unk4b': b'    ',
+                'unk4c': 24,
+                #'unk5a': (1,1,1,1),
+                'unk5b': (0,0,0,0),
+                'unk5c': (1,1,1,0),
+                'unk5d': (1,1,1,0),
+            })
+            shash = material.shader_hash
+            material.shader_name = sid = VC4_SHADER_NAMES.get(shash) or hex(shash)[2:]
+            material.traits = VC4_SHADER_TRAITS.get(sid) or set()
+            if VC4_SHADER_TRAITS.get(sid) is None:
+                print('unimplemented shader id ', sid)
+
+        return material
+
+    def read_material_param_struct(self):
+        entry = InfoDict(
+            id_hash     = self.read_long_long_le(),
+            name_ptr    = self.read_long_long_le(),
+            unk1        = self.read_long_auto(),
+            unk2        = self.read_long_auto(),
+            pad1        = self.read(8),
+            data        = read_tuple(self.read_float_auto, 4),
+            padding     = self.read(16),
+        )
+        self.check_unknown_fields('material param', entry, {
+            'unk1': 5,
+            'unk2': 2,
+        })
+        return entry
+
+    def read_material_list(self):
+        self.follow_ptr(self.material_list_ptr);
+        material_list = [ self.read_material_struct() for i in range(getattr(self, 'material_count', 1)) ]
+
+        for mat in material_list:
+            if mat.get('parameter_ptr'):
+                self.follow_ptr(mat.parameter_ptr)
+                mat.parameters = [ self.read_material_param_struct() for i in range(mat.num_parameters) ]
+
+                for param in mat.parameters:
+                    self.follow_ptr(param.name_ptr)
+                    param.name = self.read_string()
+
+                    assert hash_fnv1a64(param.name) == param.id_hash
+
+        self.materials = { mat.ptr: mat for mat in material_list }
 
     def read_object_list(self):
         self.follow_ptr(self.object_list_ptr)
@@ -1042,68 +1364,68 @@ class ValkKFMS(ValkFile):
                 vertex_group_map[local_id] = global_id
             mesh['vertex_group_map'] = vertex_group_map.copy()
 
-    def read_texture_list(self):
-        self.textures = {}
+    def read_texture_struct(self, i):
+        texture = InfoDict(
+            id          = i,
+            ptr         = self.tell_ptr(),
+            unk0        = self.read_long_auto(),
+            image       = self.read_word_auto(),
+            unk1        = self.read_word_auto(),
+            unk2        = self.read_float_auto(),
+            pad3a       = self.read(1),
+            unk3b       = self.read_byte(),
+            pad3c       = self.read(12-2),
+            unk4        = self.read_float_auto(),
+            unk5        = self.read_float_auto(),
+        )
         if self.vc_game == 1:
-            item_length = 0x40
-            read_image = self.read_word_auto
-        elif self.vc_game == 4:
-            item_length = 0x60
-            read_image = self.read_word_le
-        for i in range(self.texture_count):
-            self.follow_ptr(self.texture_list_ptr + i * item_length)
-            texture = {}
-            texture['id'] = i
-            if self.vc_game == 1:
-                texture['ptr'] = self.tell()
-            elif self.vc_game == 4:
-                texture['ptr'] = self.tell() - 0x20
-            texture['unk0'] = self.read_long_auto()
-            texture['image'] = read_image()
-            if self.vc_game == 1:
-                texture['unk1'] = self.read(2)
-                texture['unk2'] = self.read_float_auto()
-                texture['unk3a'] = self.read_word_auto()
-                texture['unk3b'] = self.read(4*3-2)
-                texture['unk4'] = self.read_float_auto()
-                texture['unk5'] = self.read_float_auto()
-                texture['unk6'] = self.read(16)
-                texture['unk7'] = self.read(16)
-                self.check_unknown_fields('texture', texture, {
-                    'unk0': {0,2,8},
-                    'unk1': b'\x00\x00',
-                    'unk2': 1,
-                    'unk3a': {1,3},
-                    'unk3b': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-                    'unk4': 1, 'unk5': 1,
-                    'unk6': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-                    'unk7': b'\x20\x20\x20\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
-                })
-            self.textures[texture['ptr']] = texture
+            texture.update_fields(
+                pad6        = self.read(16),
+                unk7a       = self.read(4),
+                pad7b       = self.read(12),
+            )
+            self.check_unknown_fields('texture', texture, {
+                'unk0': {0,2,8},
+                'unk1': 0,
+                'unk2': 1,
+                'unk3b': {1,3},
+                'unk4': 1, 'unk5': 1,
+                'unk7a': b'    ',
+            })
+        else:
+            texture.update_fields(
+                unk6a       = self.read_long_auto(),
+                pad6b       = self.read(12),
+                pad7a       = self.read(4),
+                unk7b       = self.read(4),
+                unk7c       = self.read_long_auto(),
+                pad7d       = self.read(4),
+                pad8        = self.read(16*2),
+            )
+            self.check_unknown_fields('texture', texture, {
+                'unk0': {0,2,8,9},
+                'unk1': {0,1,2,3},
+                'unk2': 1,
+                'unk3b': {1,3},
+                'unk4': 1, 'unk5': 1,
+                'unk7b': b'    ',
+                'unk7c': 1,
+            })
+        return texture
+
+    def read_texture_list(self):
+        self.follow_ptr(self.texture_list_ptr)
+        texture_list = [ self.read_texture_struct(i) for i in range(self.texture_count) ]
+        self.textures = { tex.ptr: tex for tex in texture_list }
+
+    TEXTURE_FIELD_NAMES = [ ('texture%d' % (i), 'texture%d_ptr' % (i)) for i in range(5) ]
 
     def link_materials(self):
         for material_ptr, material in self.materials.items():
-            if material['texture0_ptr']:
-                material['texture0'] = self.textures[material['texture0_ptr']]
-            else:
-                material['texture0'] = None
-            if material['texture1_ptr']:
-                material['texture1'] = self.textures[material['texture1_ptr']]
-            else:
-                material['texture1'] = None
-            if material['texture2_ptr']:
-                material['texture2'] = self.textures[material['texture2_ptr']]
-            else:
-                material['texture2'] = None
-            if self.vc_game == 4:
-                if material['texture3_ptr']:
-                    material['texture3'] = self.textures[material['texture3_ptr']]
-                else:
-                    material['texture3'] = None
-                if material['texture4_ptr']:
-                    material['texture4'] = self.textures[material['texture4_ptr']]
-                else:
-                    material['texture4'] = None
+            for texname, ptrname in self.TEXTURE_FIELD_NAMES:
+                if ptrname in material:
+                    ptr = material[ptrname]
+                    material[texname] = self.textures[ptr] if ptr else None
 
     def read_data(self):
         self.read_toc()
@@ -1121,20 +1443,9 @@ class ValkKFMS(ValkFile):
         self.link_materials()
 
 
-class ValkKFMG(ValkFile):
+class ValkKFMG(ValkFile, VC4VertexFormatMixin):
     # Doesn't contain other files.
     # Holds mesh vertex and face data.
-    VERT_LOCATION = (0x1, 0xa, 0x3)
-    VERT_WEIGHTS = (0x2, 0xa, 0x3)
-    VERT_GROUPS = (0x3, 0x1, 0x4)
-    VERT_NORMAL= (0x4, 0xa, 0x3)
-    VERT_UNKNOWN = (0x5, 0xa, 0x3)
-    VERT_UV1 = (0x7, 0xa, 0x2)
-    VERT_UV2 = (0x8, 0xa, 0x2)
-    VERT_UV3 = (0x9, 0xa, 0x2)
-    VERT_UV4 = (0xa, 0xa, 0x2)
-    VERT_UV5 = (0xb, 0xa, 0x2)
-    VERT_COLOR = (0xf, 0xa, 0x4)
 
     def read_faces(self, first_word, word_count, vertex_format):
         fmt_face_offset = vertex_format['face_ptr']
@@ -1224,11 +1535,12 @@ class ValkKFMG(ValkFile):
             if vertex['unknown_4'] != b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00':
                 print('vertex 0x50 unknown_4 nonzero:', vertex)
         elif self.vc_game == 4:
-            struct = vertex_format['struct_def']
+            struct = vertex_format.vformat.fields
             read_float = self.read_float_le
             vertex = {}
             vertex_begin = self.tell()
-            for offset, element in struct:
+            for field in struct:
+                element = field[1:]
                 if element == self.VERT_LOCATION:
                     vertex['location'] = read_tuple(read_float)
                 elif element == self.VERT_WEIGHTS:
@@ -2511,18 +2823,19 @@ class Valk4HSPK(ValkFile):
         for kspk_entry, kspp_entry in zip(kspk.entries, kspp.entries):
             assert kspk_entry.shader_hash == kspp_entry.shader_hash
             assert kspk_entry.shader_name == kspp_entry.shader_name
+            assert hash_fnv1a64(kspk_entry.shader_name) == kspk_entry.shader_hash
             kspk_entry.data_index = kspp_entry.data_index
 
 
-class Valk4KSPK(ValkFile):
+class Valk4KSPK(ValkFile, VC4VertexFormatMixin):
     # Shader bytecode pack header in Valkyria Chronicles 4
     def read_toc_header(self):
         header = InfoDict(
             unk1            = self.read_long_le(),
             count           = self.read_long_le(),
             unk2            = self.read_long_le(),
+            padding         = self.read(4 + 16*3),
         )
-        self.skip_zero(4 + 16*3)
         self.check_unknown_fields('toc_header', header, {
             'unk1': 4,
             'unk2': 64,
@@ -2536,13 +2849,8 @@ class Valk4KSPK(ValkFile):
             unk10           = self.read_long_le(),
             option_count    = self.read_long_le(),
             option_ptr      = self.read_long_long_le(),
-            vformat_hash    = self.read_long_long_le(),
-            vformat_count   = self.read_long_le(),
-            vformat_bytes   = self.read_long_le(),
-            vformat_name    = self.read_string_buffer(32),
-            vformat_ptr     = self.read_long_long_le(),
+            vformat         = self.read_vformat_spec(),
         )
-        self.skip_zero(8 + 16)
         self.check_unknown_fields('toc_entry', entry, {
             'unk10': 3,
         })
@@ -2552,23 +2860,10 @@ class Valk4KSPK(ValkFile):
         entry = InfoDict(
             id_hash    = self.read_long_long_le(),
             num_values = self.read_long_le(),
+            padding    = self.read(12),
         )
-        self.skip_zero(12)
         self.check_unknown_fields('option', entry, {
             'num_values': {2, 3, 4},
-        })
-        return entry
-
-    def read_vformat_entry(self):
-        entry = InfoDict(
-            offset      = self.read_long_le(),
-            info_type   = self.read_long_le(),
-            data_type   = self.read_long_le(),
-            value_count = self.read_long_le(),
-        )
-        self.check_unknown_fields('vformat', entry, {
-            'data_type': {1, 10},
-            'value_count': {1, 2, 3, 4},
         })
         return entry
 
@@ -2584,8 +2879,8 @@ class Valk4KSPK(ValkFile):
             entry.shader_name = self.read_string()
             self.follow_ptr(entry.option_ptr)
             entry.options = [ self.read_option_entry() for i in range(entry.option_count) ]
-            self.follow_ptr(entry.vformat_ptr)
-            entry.vformat = [ self.read_vformat_entry() for i in range(entry.vformat_count) ]
+
+            self.read_vformat_fields(entry.vformat)
 
 
 class Valk4KSPP(ValkFile):
@@ -2595,8 +2890,8 @@ class Valk4KSPP(ValkFile):
             unk1            = self.read_long_le(),
             count           = self.read_long_le(),
             unk2            = self.read_long_le(),
+            padding         = self.read(4 + 16*3)
         )
-        self.skip_zero(4 + 16*3)
         self.check_unknown_fields('toc_header', header, {
             'unk1': 4,
             'unk2': 64,
@@ -2610,8 +2905,8 @@ class Valk4KSPP(ValkFile):
             unk10           = self.read_long_le(),
             index_count     = self.read_long_le(),
             index_ptr       = self.read_long_long_le(),
+            padding         = self.read(16 * 2),
         )
-        self.skip_zero(16 * 2)
         self.check_unknown_fields('toc_entry', entry, {
             'unk10': 3,
             'index_count': 2,
@@ -2626,8 +2921,8 @@ class Valk4KSPP(ValkFile):
             item_count      = self.read_long_le(),
             table_ptr       = self.read_long_long_le(),
             item_ptr        = self.read_long_long_le(),
+            padding         = self.read(16 * 2),
         )
-        self.skip_zero(16 * 2)
         self.check_unknown_fields('index_entry', entry, {
             'shader_type': {1, 2},
             'unk04': 0,
@@ -2642,8 +2937,8 @@ class Valk4KSPP(ValkFile):
             unk0c           = self.read_long_le(),
             shader_ptr      = self.read_long_long_le(),
             binding_ptr     = self.read_long_long_le(),
+            padding         = self.read(16 * 2),
         )
-        self.skip_zero(16 * 2)
         self.check_unknown_fields('shader_entry', entry, {
             'unk08': 0,
             'unk0c': 0,

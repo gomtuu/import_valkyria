@@ -898,7 +898,7 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
         #self.valk_scene.pose_blender(pose_filename)
 
     def execute(self, context):
-        self.import_file(context, self.filepath)
+        self.import_file(context, os.path.realpath(self.filepath))
         return {'FINISHED'}
 
 
