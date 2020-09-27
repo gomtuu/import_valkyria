@@ -7,6 +7,12 @@ DEBUG = False
 def read_tuple(fn, count=3):
     return tuple(fn() for i in range(count))
 
+class InfoDict(dict):
+    "Dictionary that allows access to contents as fields."
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__dict__ = self
+
 
 class ValkFile:
     filename = None
@@ -29,7 +35,7 @@ class ValkFile:
             return self.F.seek(self.offset + pos) - self.offset
 
     def follow_ptr(self, pointer):
-        if hasattr(self, 'vc_game') and self.vc_game == 4:
+        if getattr(self, 'vc_game', 1) == 4:
             pointer += self.header_length
         return self.seek(pointer)
 
@@ -136,11 +142,16 @@ class ValkFile:
             byte = self.read(1)
         return b''.join(array).decode(encoding)
 
+    def read_string_buffer(self, size, encoding="ascii"):
+        strbuf = self.read(size)
+        index = strbuf.find(b'\x00')
+        if index >= 0:
+            strbuf = strbuf[0:index]
+        return strbuf.decode(encoding)
+
     def _print_header_hex(self):
         # For debugging and pattern-finding purposes
-        unk1 = struct.unpack('>H', self.read(2))[0]
-        unk2 = struct.unpack('>H', self.read(2))[0]
-        print("{} {:08x} {:08x} {:04x} {:04x}".format(self.ftype, self.main_length, self.header_length, unk1, unk2), end="")
+        print("{} {:08x} {:08x} {:04x} {:04x}".format(self.ftype, self.main_length, self.header_length, *self.header_unk), end="")
         if (self.header_length > 0x10):
             depth = self.read_long_le()
             next_file = self.read_long_le()
@@ -158,11 +169,10 @@ class ValkFile:
             print("Creating", self.ftype)
         self.main_length = self.read_long_le()
         self.header_length = self.read_long_le()
+        self.header_unk = read_tuple(self.read_word_le, 2)
         if DEBUG:
             self._print_header_hex()
         if self.ftype != 'EOFC' and self.header_length >= 0x20:
-            self.seek(0xe)
-            unk2 = struct.unpack('>H', self.read(2))[0]
             self.seek(0x14)
             next_offset = self.read_long_le()
         self.total_length = self.header_length + self.main_length
@@ -221,6 +231,11 @@ class ValkFile:
         path = ':'.join(self.container_path())
         pos = self.tell() + self.container_offset()
         print('%s:%x: %s' % (path, pos, message.format(*args)))
+
+    def skip_zero(self, size):
+        data = self.read(size)
+        if data != b'\x00' * size:
+            self.print_location('expected zero bytes, found: {}', data)
 
     def check_unknown_fields(self, name, data, pattern):
         for k, v in pattern.items():
@@ -2480,21 +2495,197 @@ class Valk4REXP(ValkFile):
 
 
 class Valk4HSPK(ValkFile):
-    # Unknown block found in Valkyria Chronicles 4
-    # Contains KSPK and KSPP blocks
-    pass
+    # Shader bytecode pack found in Valkyria Chronicles 4
+    def read_data(self):
+        assert len(self.KSPK) == 1 and len(self.KSPP) == 1
+        kspk = self.KSPK[0]
+        kspp = self.KSPP[0]
+        kspk.read_data()
+        kspp.read_data()
+
+        assert len(kspk.entries) == len(kspp.entries)
+
+        self.entries = kspk.entries
+        self.is_dxbc = kspp.is_dxbc
+
+        for kspk_entry, kspp_entry in zip(kspk.entries, kspp.entries):
+            assert kspk_entry.shader_hash == kspp_entry.shader_hash
+            assert kspk_entry.shader_name == kspp_entry.shader_name
+            kspk_entry.data_index = kspp_entry.data_index
 
 
 class Valk4KSPK(ValkFile):
-    # Unknown block found in Valkyria Chronicles 4
-    # Something to do with shaders
-    pass
+    # Shader bytecode pack header in Valkyria Chronicles 4
+    def read_toc_header(self):
+        header = InfoDict(
+            unk1            = self.read_long_le(),
+            count           = self.read_long_le(),
+            unk2            = self.read_long_le(),
+        )
+        self.skip_zero(4 + 16*3)
+        self.check_unknown_fields('toc_header', header, {
+            'unk1': 4,
+            'unk2': 64,
+        })
+        return header
+
+    def read_toc_entry(self):
+        entry = InfoDict(
+            shader_hash     = self.read_long_long_le(), # FNV1A64 hash of name
+            shader_name_ptr = self.read_long_long_le(),
+            unk10           = self.read_long_le(),
+            option_count    = self.read_long_le(),
+            option_ptr      = self.read_long_long_le(),
+            vformat_hash    = self.read_long_long_le(),
+            vformat_count   = self.read_long_le(),
+            vformat_bytes   = self.read_long_le(),
+            vformat_name    = self.read_string_buffer(32),
+            vformat_ptr     = self.read_long_long_le(),
+        )
+        self.skip_zero(8 + 16)
+        self.check_unknown_fields('toc_entry', entry, {
+            'unk10': 3,
+        })
+        return entry
+
+    def read_option_entry(self):
+        entry = InfoDict(
+            id_hash    = self.read_long_long_le(),
+            num_values = self.read_long_le(),
+        )
+        self.skip_zero(12)
+        self.check_unknown_fields('option', entry, {
+            'num_values': {2, 3, 4},
+        })
+        return entry
+
+    def read_vformat_entry(self):
+        entry = InfoDict(
+            offset      = self.read_long_le(),
+            info_type   = self.read_long_le(),
+            data_type   = self.read_long_le(),
+            value_count = self.read_long_le(),
+        )
+        self.check_unknown_fields('vformat', entry, {
+            'data_type': {1, 10},
+            'value_count': {1, 2, 3, 4},
+        })
+        return entry
+
+    def read_data(self):
+        self.vc_game = 4
+
+        self.seek(self.header_length)
+        self.toc_header = self.read_toc_header()
+        self.entries = [ self.read_toc_entry() for i in range(self.toc_header.count) ]
+
+        for entry in self.entries:
+            self.follow_ptr(entry.shader_name_ptr)
+            entry.shader_name = self.read_string()
+            self.follow_ptr(entry.option_ptr)
+            entry.options = [ self.read_option_entry() for i in range(entry.option_count) ]
+            self.follow_ptr(entry.vformat_ptr)
+            entry.vformat = [ self.read_vformat_entry() for i in range(entry.vformat_count) ]
 
 
 class Valk4KSPP(ValkFile):
-    # Unknown block found in Valkyria Chronicles 4
-    # Something to do with shaders
-    pass
+    # Shader bytecode pack data in Valkyria Chronicles 4
+    def read_toc_header(self):
+        header = InfoDict(
+            unk1            = self.read_long_le(),
+            count           = self.read_long_le(),
+            unk2            = self.read_long_le(),
+        )
+        self.skip_zero(4 + 16*3)
+        self.check_unknown_fields('toc_header', header, {
+            'unk1': 4,
+            'unk2': 64,
+        })
+        return header
+
+    def read_toc_entry(self):
+        entry = InfoDict(
+            shader_hash     = self.read_long_long_le(), # FNV1A64 hash of name
+            shader_name_ptr = self.read_long_long_le(),
+            unk10           = self.read_long_le(),
+            index_count     = self.read_long_le(),
+            index_ptr       = self.read_long_long_le(),
+        )
+        self.skip_zero(16 * 2)
+        self.check_unknown_fields('toc_entry', entry, {
+            'unk10': 3,
+            'index_count': 2,
+        })
+        return entry
+
+    def read_index_entry(self):
+        entry = InfoDict(
+            shader_type     = self.read_long_le(),
+            unk04           = self.read_long_le(),
+            table_size      = self.read_long_le(),
+            item_count      = self.read_long_le(),
+            table_ptr       = self.read_long_long_le(),
+            item_ptr        = self.read_long_long_le(),
+        )
+        self.skip_zero(16 * 2)
+        self.check_unknown_fields('index_entry', entry, {
+            'shader_type': {1, 2},
+            'unk04': 0,
+        })
+        return entry
+
+    def read_shader_entry(self):
+        entry = InfoDict(
+            shader_size     = self.read_long_le(),
+            binding_count   = self.read_long_le(),
+            unk08           = self.read_long_le(),
+            unk0c           = self.read_long_le(),
+            shader_ptr      = self.read_long_long_le(),
+            binding_ptr     = self.read_long_long_le(),
+        )
+        self.skip_zero(16 * 2)
+        self.check_unknown_fields('shader_entry', entry, {
+            'unk08': 0,
+            'unk0c': 0,
+        })
+        return entry
+
+    def read_binding_entry(self):
+        entry = InfoDict(
+            id_code         = self.read_long_le(), # attribute offset in shader data
+            unk04           = self.read_long_le(),
+            id_hash         = self.read_long_long_le(), # FNV1A64 hash of attribute name
+        )
+        self.check_unknown_fields('binding_entry', entry, {
+            'unk04': 1,
+        })
+        return entry
+
+    def read_data(self):
+        self.vc_game = 4
+        self.is_dxbc = (self.header_unk[0] == 0xb)
+
+        self.seek(self.header_length)
+        self.toc_header = self.read_toc_header()
+        self.entries = [ self.read_toc_entry() for i in range(self.toc_header.count) ]
+
+        for entry in self.entries:
+            self.follow_ptr(entry.shader_name_ptr)
+            entry.shader_name = self.read_string()
+            self.follow_ptr(entry.index_ptr)
+            entry.data_index = [ self.read_index_entry() for i in range(entry.index_count) ]
+
+            for index in entry.data_index:
+                self.follow_ptr(index.table_ptr)
+                index.table = [ self.read_long_le() for i in range(index.table_size) ]
+                self.follow_ptr(index.item_ptr)
+                index.shaders = [ self.read_shader_entry() for i in range(index.item_count) ]
+
+                for shader in index.shaders:
+                    self.follow_ptr(shader.shader_ptr)
+                    shader.shader_data = self.read(shader.shader_size)
+                    self.follow_ptr(shader.binding_ptr)
+                    shader.bindings = [ self.read_binding_entry() for i in range(shader.binding_count) ]
 
 
 class Valk4ATOM(ValkFile):
