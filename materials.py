@@ -114,8 +114,11 @@ class ImageManager:
         if image.channels != 4:
             return False
 
-        if image.depth <= 24:
+        if image.depth in (8, 24):
             return False
+
+        if image.depth not in (16, 32):
+            print('Unexpected image bit depth: ', image.depth)
 
         return True
 
@@ -232,7 +235,7 @@ class MaterialTreeBuilder(NodeTreeBuilder):
         self.texture_nodes = {}
         self.texture_images = {}
 
-        self.tex_x = self.out_x - 5 * self.colsize
+        self.tex_x = self.out_x - 7 * self.colsize
         tex_y = self.out_y
 
         for i in range(5):
@@ -242,7 +245,8 @@ class MaterialTreeBuilder(NodeTreeBuilder):
                 self.texture_images[i] = imginfo = self.texture_pack[texture['image']]
 
                 if DEBUG:
-                    tail = ''.join(' %s=%r'%(k,texture[k]) for k in ['unk0', 'unk3a'] if k in texture)
+                    field_names = ['unk0', 'unk2', 'unk3a', 'unk7c']
+                    tail = ''.join(' %s=%r'%(k,texture[k]) for k in field_names if k in texture)
                 else:
                     tail = ''
 
@@ -254,10 +258,12 @@ class MaterialTreeBuilder(NodeTreeBuilder):
                     width=self.colsize_tex - 20,
                 )
 
+                uv_id = 0 if 'all_uv0' in self.info.traits else i
+
                 node_uv = self.mknode(
                     'ShaderNodeUVMap',
                     self.tex_x - self.colsize_tex - self.colsize_mid * 2, tex_y,
-                    uv_map='UVMap-{}'.format(i)
+                    uv_map='UVMap-{}'.format(uv_id)
                 )
 
                 self.link(node_uv, 0, node_tex, 0)
@@ -287,10 +293,9 @@ class MaterialTreeBuilder(NodeTreeBuilder):
             cur_x -= self.colsize
 
         # Create nodes for the vertex color used for blending textures
-        use_mul_blend = 'texblend_mul' in self.info['traits']
-        tex_blend_type = 'MULTIPLY' if use_mul_blend else 'MIX'
-
-        use_vc_blend = not use_mul_blend and 'texblend_vcolor1' in self.info['traits']
+        use_mul_blend_all = 'texblend_mul' in self.info['traits']
+        use_no_blend_alpha_all = 'texblend_noalpha' in self.info['traits']
+        use_vc_blend = not use_mul_blend_all and 'texblend_vcolor1' in self.info['traits']
 
         if use_vc_blend and 1 in self.vertex_colors:
             vc_x = self.tex_x - self.colsize
@@ -303,31 +308,34 @@ class MaterialTreeBuilder(NodeTreeBuilder):
             vc_blend_factors = (1,1,1)
 
         # Link the extra textures
-        if 'texture2' in self.info['traits'] and 2 in self.texture_nodes:
-            node_mix = self.mknode('ShaderNodeMixRGB', cur_x, cur_y, blend_type=tex_blend_type)
-            self.link_out(node_mix, 0, cur_socket)
-            if use_mul_blend:
-                self.link_in(node_mix, 0, 1)
-            elif use_vc_blend:
-                self.link_in(node_mix, 0, vc_blend_factors[1])
-            else:
-                self.link(self.texture_nodes[2], 1, node_mix, 0)
-            self.link(self.texture_nodes[2], 0, node_mix, 2)
-            cur_socket = node_mix.inputs[1]
-            cur_x -= self.colsize
+        for i in range(4,0,-1):
+            si = str(i)
+            if i not in self.texture_nodes:
+                continue
 
-        if 'texture1' in self.info['traits'] and 1 in self.texture_nodes:
-            node_mix = self.mknode('ShaderNodeMixRGB', cur_x, cur_y, blend_type=tex_blend_type)
-            self.link_out(node_mix, 0, cur_socket)
-            if use_mul_blend:
-                self.link_in(node_mix, 0, 1)
-            elif use_vc_blend:
-                self.link_in(node_mix, 0, vc_blend_factors[0])
-            else:
-                self.link(self.texture_nodes[1], 1, node_mix, 0)
-            self.link(self.texture_nodes[1], 0, node_mix, 2)
-            cur_socket = node_mix.inputs[1]
-            cur_x -= self.colsize
+            if ('texture'+si) in self.info['traits']:
+                use_mul_blend = use_mul_blend_all or ('texblend_mul'+si) in self.info['traits']
+                use_no_blend_alpha = use_no_blend_alpha_all or ('texblend_noalpha'+si) in self.info['traits']
+                node_mix = self.mknode(
+                    'ShaderNodeMixRGB', cur_x, cur_y,
+                    blend_type='MULTIPLY' if use_mul_blend else 'MIX'
+                )
+                self.link_out(node_mix, 0, cur_socket)
+                if use_no_blend_alpha:
+                    self.link_in(node_mix, 0, 1)
+                elif use_vc_blend:
+                    self.link_in(node_mix, 0, vc_blend_factors[i])
+                else:
+                    self.link(self.texture_nodes[i], 1, node_mix, 0)
+                self.link(self.texture_nodes[i], 0, node_mix, 2)
+                cur_socket = node_mix.inputs[1]
+                cur_x -= self.colsize
+
+            if ('specular'+si) in self.info['traits']:
+                self.link(self.texture_nodes[i], 0, self.node_main, "Specular")
+
+            if ('specular_alpha'+si) in self.info['traits']:
+                self.link(self.texture_nodes[i], 1, self.node_main, "Specular")
 
         # Link the primary texture
         if 0 in self.texture_nodes:
@@ -336,7 +344,7 @@ class MaterialTreeBuilder(NodeTreeBuilder):
             if 'alpha' in self.info['traits'] and self.texture_nodes[0].image.alpha_mode != 'NONE':
                 self.link(self.texture_nodes[0], 1, self.node_main, 'Alpha')
                 self.material.shadow_method = 'CLIP'
-                if 'ls' in self.info['traits']: # just a guess
+                if 'alphablend' in self.info['traits']:
                     self.material.blend_method = 'BLEND'
                 else:
                     self.material.blend_method = 'CLIP'
@@ -377,6 +385,7 @@ class MaterialTreeBuilder(NodeTreeBuilder):
 
     def build_water(self):
         self.link_in(self.node_main, 'Roughness', 0)
+        self.link_in(self.node_main, 'Specular', 0.5)
 
         if self.node_normal:
             self.link_in(self.node_normal, 'Strength', 0.1)
@@ -405,6 +414,9 @@ class MaterialTreeBuilder(NodeTreeBuilder):
         self.clear_tree()
         self.create_textures()
 
+        if 'specular' not in self.info['traits']:
+            self.link_in(self.node_main, 'Specular', 0)
+
         self.build_color()
         self.build_normal()
         self.build_backface_cull()
@@ -412,8 +424,6 @@ class MaterialTreeBuilder(NodeTreeBuilder):
         if 'water' in self.info['traits']:
             self.build_water()
         else:
-            if 'specular' not in self.info['traits']:
-                self.link_in(self.node_main, 'Specular', 0)
             if 'unlit' in self.info['traits']:
                 self.switch_to_emission((0,0,0))
 
@@ -503,7 +513,10 @@ class MaterialBuilder:
 
             for key, val in matdata.items():
                 if key not in blocklist and isinstance(val, (int, float, tuple, str)):
-                    mat[key] = val
+                    try:
+                        mat[key] = val
+                    except OverflowError:
+                        mat[key] = repr(val)
 
             for param in matdata.get('parameters',[]):
                 mat[param.name] = param.data

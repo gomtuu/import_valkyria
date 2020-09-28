@@ -383,7 +383,7 @@ class VC4VertexFormatMixin:
     VERT_WEIGHTS = (0x2, 0xa, 0x3)
     VERT_GROUPS = (0x3, 0x1, 0x4)
     VERT_NORMAL= (0x4, 0xa, 0x3)
-    VERT_UNKNOWN = (0x5, 0xa, 0x3)
+    VERT_TANGENT = (0x5, 0xa, 0x3)
     VERT_UV1 = (0x7, 0xa, 0x2)
     VERT_UV2 = (0x8, 0xa, 0x2)
     VERT_UV3 = (0x9, 0xa, 0x2)
@@ -491,7 +491,8 @@ class ValkKFSS(ValkFile, VC4VertexFormatMixin):
                     value_count = self.read_long_le() # 2 (u,v) or 3 (x,y,z)
                     struct_row = (offset, (info_type, data_type, value_count))
                     vertfmt['struct_def'].append(struct_row)
-                assert vertfmt['bytes_per_vertex'] in [0x0, 0x8, 0xc, 0x14, 0x18, 0x1c]
+                if vertfmt['bytes_per_vertex'] not in [0x0, 0x8, 0xc, 0x14, 0x18, 0x1c, 0x28]:
+                    self.print_location('unexpected bytes_per_vertex: {}', vertfmt)
                 self.vertex_formats.append(vertfmt)
 
     def read_key_list(self):
@@ -635,9 +636,10 @@ def _make_shader_traits():
     bump2 = 'normal1'
     vc2 = 'texblend_vcolor1' # blend textures with vcolor1.xy instead of alpha
     multex = 'texblend_mul' # multiply textures together
+    notexalpha = 'texblend_noalpha' # don't use alpha for blending textures
     a = 'alpha'
     ag = 'ag' # some alpha stuff
-    ls = 'ls' # hlsl shaders identical; maybe 'layer sorted' for alpha blend?
+    ls = 'alphablend' # hlsl shaders identical; maybe 'layer sorted' for alpha blend?
     ns = 'no_shadow' # no crosshatching
     lshadow = 'light_shadow' # light crosshatching
     unlit = 'unlit' # use emission to ignore lighting
@@ -701,10 +703,10 @@ def _make_shader_traits():
         0x552: {a,ls,lshadow,tex2,tex3}, # VL_FPaintLSNSLightShadowTex3
         0x553: {a,ls,lshadow,bump2,spec,'ring'}, # VL_FPaintLSNSLightShadowTex2Bump2ring
         0x556: {a,ls,lshadow,bump2,'objspace'}, # VL_FPaintLSNSLightShadowTex2Bump2objspace
-        0x601: {a,multex,ls,tex2}, # vl_alphacompo_mul_lstex2
-        0x604: {a,multex,ls,tex3}, # vl_alphacompo_mul_lstex3
-        0x625: {a,multex,tex2}, # vl_alphacompo_mul_tex2
-        0x628: {a,multex,tex3}, # vl_alphacompo_mul_tex3
+        0x601: {a,multex,notexalpha,ls,tex2}, # vl_alphacompo_mul_lstex2
+        0x604: {a,multex,notexalpha,ls,tex2,tex3}, # vl_alphacompo_mul_lstex3
+        0x625: {a,multex,notexalpha,tex2}, # vl_alphacompo_mul_tex2
+        0x628: {a,multex,notexalpha,tex2,tex3}, # vl_alphacompo_mul_tex3
         0x648: {a,ag,ls}, # VL_FPaintLSAG
         0x649: {a,ag,ls,tex2}, # VL_FPaintLSAGTex2
         0x651: {a,ag,ls,bump2}, # VL_FPaintLSAGTex2Bump2
@@ -734,27 +736,33 @@ def _make_shader_traits():
         0x1672: {a,ag}, # VL_FPaintAGPrim
     }
     # Valkyria Chronicles 4 shader table (None entries provide just the name)
+    tex4 = 'texture3' # blend with tex alpha and LayerVSParam[2].w
+    tex5 = 'texture4' # blend with tex alpha and LayerVSParam[2].w
+    char = 'character'
+    map = 'map'
+    pm = 'pm' # 'parallax mapping'? seems to be reflection related
+    uv0 = 'all_uv0'
     vc4_traits = {
         'cri_mana_h264_miyako': None,
         'cri_mana_sofdec_prime_alpha_miyako': None,
         'cri_mana_sofdec_prime_miyako': None,
-        'fen_char_t1': None,
-        'fen_char_t1_eye': None,
-        'fen_char_t1_eye_pm': None,
-        'fen_char_t1_hair': None,
-        'fen_char_t1_hair_pm': None,
-        'fen_char_t1_pm': None,
-        'fen_char_t1_skin': None,
-        'fen_char_t1_skin_pm': None,
-        'fen_char_t2': None,
-        'fen_char_t2_decare': None,
-        'fen_char_t2_decare_add': None,
-        'fen_char_t2_pm': None,
-        'fen_char_t2_skin': None,
-        'fen_char_t3': None,
-        'fen_char_t3_pm': None,
-        'fen_char_t4': None,
-        'fen_char_t4_pm': None,
+        'fen_char_t1': {char},
+        'fen_char_t1_eye': {char,uv0,tex2,tex3,tex4,'texblend_mul3',lshadow},
+        'fen_char_t1_eye_pm': {char,uv0,tex2,tex3,tex4,'texblend_mul3',lshadow,pm},
+        'fen_char_t1_hair': {char,uv0,'specular_alpha1',lshadow},
+        'fen_char_t1_hair_pm': {char,uv0,'specular_alpha1',lshadow,pm},
+        'fen_char_t1_pm': {char,pm},
+        'fen_char_t1_skin': {char,lshadow},
+        'fen_char_t1_skin_pm': {char,lshadow,pm},
+        'fen_char_t2': {char,tex2,'texblend_dec1y'},
+        'fen_char_t2_decare': {char,tex2}, # variations in the use of cDecareParam
+        'fen_char_t2_decare_add': {char,tex2,'texblend_dec1w'}, # applies after lighting
+        'fen_char_t2_pm': {char,tex2,'texblend_dec1y',pm},
+        'fen_char_t2_skin': {char,tex2,lshadow},
+        'fen_char_t3': {char,tex2,tex3},
+        'fen_char_t3_pm': {char,tex2,tex3,pm},
+        'fen_char_t4': {char,tex2,tex3,tex4},
+        'fen_char_t4_pm': {char,tex2,tex3,tex4,pm},
         'fen_height_base_t1': None,
         'fen_height_base_t1_c4': None,
         'fen_height_base_t1_pt': None,
@@ -825,10 +833,10 @@ def _make_shader_traits():
         'fen_map_ice_t3_parallax_lm': None,
         'fen_map_sky_t1': None,
         'fen_map_sky_t2': None,
-        'fen_map_t1': None,
+        'fen_map_t1': {map},
         'fen_map_t1_lm': None,
         'fen_map_t1_lm_pm': None,
-        'fen_map_t1_pm': None,
+        'fen_map_t1_pm': {map,pm},
         'fen_map_t2': None,
         'fen_map_t2_decare': None,
         'fen_map_t2_decare_lm': None,
@@ -903,7 +911,7 @@ def _make_shader_traits():
         'fen_shadow_t4_pt': None,
         'fen_shadow_t5': None,
         'fen_shadow_t5_pt': None,
-        'fen_t1': None,
+        'fen_t1': set(),
         'fen_t1_ad': None,
         'fen_t1_invalid_light': None,
         'fen_t1_invalid_light_ad': None,
@@ -1205,7 +1213,8 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
                 use_backface_culling = self.read_byte(),
                 shader_hash          = self.read_long_long_le(),
                 unk3a                = self.read_long_long_le(),
-                unk3b                = self.read_long_long_le(),
+                unk3b                = self.read_long_auto(),
+                unk3c                = self.read_long_auto(), # hash or float?
                 pad4a                = self.read(4),
                 unk4b                = self.read(4),
                 unk4c                = self.read_float_auto(),
@@ -1227,20 +1236,33 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
             )
             self.check_unknown_fields('material', material, {
                 'unk2b': {(5,6), (5,2), (2,1)},
-                'unk3a': set(range(10)),
-                'unk3b': set(range(3)),
+                'unk3a': set(range(11)),
+                'unk3b': {
+                    0,1,2,
+                    330,680, # vla005a
+                    444,556, # vlb106a
+                    521,     # vlb107a
+                    3,       # vl_vc301 (dlc1)
+                    681,682, # vl_bs003
+                    600,     # vl_puppet_a
+                    },
                 'unk4b': b'    ',
-                'unk4c': 24,
-                #'unk5a': (1,1,1,1),
+                'unk4c': {
+                    24,
+                    160.9803924560547, # vl_pf016 (dlc1)
+                    },
+                'unk5a': {(1,1,1,1),(0,0,0,1),(0,0,0,0)},
                 'unk5b': (0,0,0,0),
-                'unk5c': (1,1,1,0),
+                'unk5c': (1,1,1,0), # vlb108a
                 'unk5d': (1,1,1,0),
             })
             shash = material.shader_hash
             material.shader_name = sid = VC4_SHADER_NAMES.get(shash) or hex(shash)[2:]
-            material.traits = VC4_SHADER_TRAITS.get(sid) or set()
+            material.traits = (VC4_SHADER_TRAITS.get(sid) or set()) | {'v4'}
             if VC4_SHADER_TRAITS.get(sid) is None:
                 print('unimplemented shader id ', sid)
+            if (material.flags1 & 0x24):
+                material.traits.add('alpha')
 
         return material
 
@@ -1405,11 +1427,17 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
             self.check_unknown_fields('texture', texture, {
                 'unk0': {0,2,8,9},
                 'unk1': {0,1,2,3},
-                'unk2': 1,
+                'unk2': {
+                    1,
+                    0,  # vl_vc301 (dlc1) - blend factor? set to 0 for damage texture
+                    },
                 'unk3b': {1,3},
                 'unk4': 1, 'unk5': 1,
                 'unk7b': b'    ',
-                'unk7c': 1,
+                'unk7c': {
+                    1,
+                    0,  # vl_bs001
+                    },
             })
         return texture
 
@@ -1554,10 +1582,8 @@ class ValkKFMG(ValkFile, VC4VertexFormatMixin):
                     vertex['vertex_group_4'] = self.read_byte()
                 elif element == self.VERT_NORMAL:
                     vertex['normal'] = read_tuple(read_float)
-                elif element == self.VERT_UNKNOWN:
-                    vertex['unknown_1'] = read_float()
-                    vertex['unknown_2'] = read_float()
-                    vertex['unknown_3'] = read_float()
+                elif element == self.VERT_TANGENT:
+                    vertex['tangent'] = read_tuple(read_float)
                 elif element == self.VERT_UV1:
                     vertex['uv'] = read_tuple(read_float, 2)
                 elif element == self.VERT_UV2:
