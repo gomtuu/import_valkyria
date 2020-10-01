@@ -736,16 +736,19 @@ def _make_shader_traits():
         0x1672: {a,ag}, # VL_FPaintAGPrim
     }
     # Valkyria Chronicles 4 shader table (None entries provide just the name)
-    tex4 = 'texture3' # blend with tex alpha and LayerVSParam[2].w
-    tex5 = 'texture4' # blend with tex alpha and LayerVSParam[2].w
+    tex4 = 'texture3' # blend with tex alpha and LayerVSParam[3].w
+    tex5 = 'texture4' # blend with tex alpha and LayerVSParam[4].w
     char = 'character'
     map = 'map'
-    pm = 'pm' # 'parallax mapping'? seems to be reflection related
+    pm = 'pm' # 'parallax mapping'? might be reflection related?
     uv0 = 'all_uv0'
+    ice = [map,'ice',bump2,'warp_uv0_tex1']
+    ice_t3 = [*ice,'tex1_uv2',tex3,tex4,'texblend_vcolor0_alpha_ex3']
     vc4_traits = {
         'cri_mana_h264_miyako': None,
         'cri_mana_sofdec_prime_alpha_miyako': None,
         'cri_mana_sofdec_prime_miyako': None,
+        # ---------------------------------------------
         'fen_char_t1': {char},
         'fen_char_t1_eye': {char,uv0,tex2,tex3,tex4,'texblend_mul3',lshadow},
         'fen_char_t1_eye_pm': {char,uv0,tex2,tex3,tex4,'texblend_mul3',lshadow,pm},
@@ -763,6 +766,7 @@ def _make_shader_traits():
         'fen_char_t3_pm': {char,tex2,tex3,pm},
         'fen_char_t4': {char,tex2,tex3,tex4},
         'fen_char_t4_pm': {char,tex2,tex3,tex4,pm},
+        # ---------------------------------------------
         'fen_height_base_t1': None,
         'fen_height_base_t1_c4': None,
         'fen_height_base_t1_pt': None,
@@ -803,58 +807,61 @@ def _make_shader_traits():
         'fen_height_map_t4_pt': None,
         'fen_height_map_t5': None,
         'fen_height_map_t5_pt': None,
-        'fen_map_ice_t2': None,
-        'fen_map_ice_t2_dm': None,
-        'fen_map_ice_t2_dm_ws': None,
-        'fen_map_ice_t2_lm': None,
-        'fen_map_ice_t2_lm_ta': None,
-        'fen_map_ice_t2_lm_va': None,
-        'fen_map_ice_t2_parallax': None,
-        'fen_map_ice_t2_parallax_lm': None,
-        'fen_map_ice_t2_parallax_lm_ta': None,
-        'fen_map_ice_t2_parallax_lm_va': None,
-        'fen_map_ice_t2_parallax_pm': None,
-        'fen_map_ice_t2_parallax_ta': None,
-        'fen_map_ice_t2_parallax_ta_pm': None,
-        'fen_map_ice_t2_parallax_va': None,
-        'fen_map_ice_t2_parallax_va_pm': None,
-        'fen_map_ice_t2_pm': None,
-        'fen_map_ice_t2_ta': None,
-        'fen_map_ice_t2_ta_pm': None,
-        'fen_map_ice_t2_va': None,
-        'fen_map_ice_t2_va_pm': None,
-        'fen_map_ice_t2_ws': None,
-        'fen_map_ice_t3': None,
-        'fen_map_ice_t3_dm': None,
-        'fen_map_ice_t3_lm': None,
-        'fen_map_ice_t3_parallax': None,
-        'fen_map_ice_t3_parallax_dm': None,
-        'fen_map_ice_t3_parallax_dm_ws': None,
-        'fen_map_ice_t3_parallax_lm': None,
-        'fen_map_sky_t1': None,
-        'fen_map_sky_t2': None,
+        # ---------------------------------------------
+        'fen_map_ice_t2': {*ice},
+        'fen_map_ice_t2_dm': {*ice,'displace2'},
+        'fen_map_ice_t2_dm_ws': {*ice,'displace2',spec,'roughness00'}, # "water surface"
+        'fen_map_ice_t2_lm': {*ice,tex3,'texblend_lm2'},
+        'fen_map_ice_t2_lm_ta': {*ice,tex3,tex4,'texblend_lm3'},
+        'fen_map_ice_t2_lm_va': {*ice,tex3,'texblend_vcolor0_alpha2',tex4,'texblend_lm3'},
+        'fen_map_ice_t2_parallax': {*ice,'parallax'},
+        'fen_map_ice_t2_parallax_lm': {*ice,tex3,'texblend_lm2','parallax'},
+        'fen_map_ice_t2_parallax_lm_ta': {*ice,tex3,tex4,'texblend_lm3','parallax'},
+        'fen_map_ice_t2_parallax_lm_va': {*ice,tex3,'texblend_vcolor0_alpha2',tex4,'texblend_lm3','parallax'},
+        'fen_map_ice_t2_parallax_pm': {*ice,'parallax',pm},
+        'fen_map_ice_t2_parallax_ta': {*ice,tex3,'parallax'},
+        'fen_map_ice_t2_parallax_ta_pm': {*ice,tex3,'parallax',pm},
+        'fen_map_ice_t2_parallax_va': {*ice,tex3,'texblend_vcolor0_alpha2','parallax'},
+        'fen_map_ice_t2_parallax_va_pm': {*ice,tex3,'texblend_vcolor0_alpha2','parallax',pm},
+        'fen_map_ice_t2_pm': {*ice,pm},
+        'fen_map_ice_t2_ta': {*ice,tex3},
+        'fen_map_ice_t2_ta_pm': {*ice,tex3,pm},
+        'fen_map_ice_t2_va': {*ice,tex3,'texblend_vcolor0_alpha2'},
+        'fen_map_ice_t2_va_pm': {*ice,tex3,'texblend_vcolor0_alpha2',pm},
+        'fen_map_ice_t2_ws': {*ice,spec,'roughness00'}, # "water surface"
+        'fen_map_ice_t3': {*ice_t3},
+        'fen_map_ice_t3_dm': {*ice_t3,'displace4','tex4_uv1'},
+        'fen_map_ice_t3_lm': {*ice_t3,tex5,'texblend_lm4'},
+        'fen_map_ice_t3_parallax': {*ice_t3,'parallax'},
+        'fen_map_ice_t3_parallax_dm': {*ice_t3,'displace4','tex4_uv1','parallax'},
+        'fen_map_ice_t3_parallax_dm_ws': {*ice_t3,'displace4','tex4_uv1',spec,'roughness00','parallax'},
+        'fen_map_ice_t3_parallax_lm': {*ice_t3,tex5,'texblend_lm4','parallax'},
+        # ---------------------------------------------
+        'fen_map_sky_t1': {map,unlit},
+        'fen_map_sky_t2': {map,unlit,tex2},
         'fen_map_t1': {map},
-        'fen_map_t1_lm': None,
-        'fen_map_t1_lm_pm': None,
+        'fen_map_t1_lm': {map,tex2,'texblend_lm1'},
+        'fen_map_t1_lm_pm': {map,tex2,'texblend_lm1',pm},
         'fen_map_t1_pm': {map,pm},
-        'fen_map_t2': None,
-        'fen_map_t2_decare': None,
-        'fen_map_t2_decare_lm': None,
-        'fen_map_t2_decare_lm_pm': None,
-        'fen_map_t2_decare_pm': None,
-        'fen_map_t2_footprint': None,
-        'fen_map_t2_footprint_lm': None,
-        'fen_map_t2_footprint_lm_pm': None,
-        'fen_map_t2_footprint_pm': None,
-        'fen_map_t2_lm': None,
-        'fen_map_t2_lm_pm': None,
-        'fen_map_t2_pm': None,
-        'fen_map_t3_decare': None,
-        'fen_map_t3_decare_pm': None,
-        'fen_map_t4_decare': None,
-        'fen_map_t4_decare_pm': None,
-        'fen_map_water': None,
-        'fen_map_water_pm': None,
+        'fen_map_t2': {map,tex2,'texblend_vcolor0_alpha1'},
+        'fen_map_t2_decare': {map,tex2,'texblend_vcolor0_alpha_ex1'},
+        'fen_map_t2_decare_lm': {map,tex2,'texblend_vcolor0_alpha_ex1',tex3,'texblend_lm2'},
+        'fen_map_t2_decare_lm_pm': {map,tex2,'texblend_vcolor0_alpha_ex1',tex3,'texblend_lm2',pm},
+        'fen_map_t2_decare_pm': {map,tex2,'texblend_vcolor0_alpha_ex1',pm},
+        'fen_map_t2_footprint': {map,tex2,'texblend_footprint'},
+        'fen_map_t2_footprint_lm': {map,tex2,'texblend_footprint',tex3,'texblend_lm2'},
+        'fen_map_t2_footprint_lm_pm': {map,tex2,'texblend_footprint',tex3,'texblend_lm2',pm},
+        'fen_map_t2_footprint_pm': {map,tex2,'texblend_footprint',pm},
+        'fen_map_t2_lm': {map,tex2,'texblend_vcolor0_alpha1',tex3,'texblend_lm2'},
+        'fen_map_t2_lm_pm': {map,tex2,'texblend_vcolor0_alpha1',tex3,'texblend_lm2',pm},
+        'fen_map_t2_pm': {map,tex2,'texblend_vcolor0_alpha1',pm},
+        'fen_map_t3_decare': {map,tex2,tex3},
+        'fen_map_t3_decare_pm': {map,tex2,tex3,pm},
+        'fen_map_t4_decare': {map,tex2,tex3,tex4},
+        'fen_map_t4_decare_pm': {map,tex2,tex3,tex4,pm},
+        'fen_map_water': {'water',bump2,'tex1_uv0','tex2_uv1','tex3_uv1',spec,'roughness00'},
+        'fen_map_water_pm': {'water',bump2,'tex1_uv0','tex2_uv1','tex3_uv1',spec,'roughness00',pm},
+        # ---------------------------------------------
         'fen_prim_bright_pixel': None,
         'fen_prim_compo_height_map': None,
         'fen_prim_copy': None,
@@ -891,6 +898,7 @@ def _make_shader_traits():
         'fen_prim_wind_map_t1': None,
         'fen_prim_wind_map_t2': None,
         'fen_refraction': None,
+        # ---------------------------------------------
         'fen_shadow_t1': None,
         'fen_shadow_t1_c4': None,
         'fen_shadow_t1_pt': None,
@@ -911,11 +919,12 @@ def _make_shader_traits():
         'fen_shadow_t4_pt': None,
         'fen_shadow_t5': None,
         'fen_shadow_t5_pt': None,
+        # ---------------------------------------------
         'fen_t1': set(),
         'fen_t1_ad': None,
-        'fen_t1_invalid_light': None,
+        'fen_t1_invalid_light': {unlit},
         'fen_t1_invalid_light_ad': None,
-        'fen_t1_invalid_light_sp': None,
+        'fen_t1_invalid_light_sp': {unlit,'soft_particle'},
         'fen_t1_sp': None,
         'fen_t2': None,
         'fen_t2_ad': None,
@@ -927,10 +936,11 @@ def _make_shader_traits():
         'fen_t2_invalid_light_ad': None,
         'fen_t2_invalid_light_sp': None,
         'fen_t2_sp': None,
-        'fen_warp_t1': None,
-        'fen_warp_t1_invalid_light': None,
-        'fen_warp_t1_invalid_light_sp': None,
+        'fen_warp_t1': {'warp_uv0_tex1'},
+        'fen_warp_t1_invalid_light': {unlit,'warp_uv0_tex1'},
+        'fen_warp_t1_invalid_light_sp': {unlit,'warp_uv0_tex1','soft_particle'},
         'fen_warp_t1_sp': None,
+        # ---------------------------------------------
         'fen_wind_map_t1': None,
         'fen_wind_map_t1_conv': None,
         'fen_wind_map_t2': None,
@@ -1173,7 +1183,8 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
                 shader_id            = self.read_long_auto(),
                 pad2a                = self.read(4),
                 num_textures         = self.read_byte(),
-                unk2b                = read_tuple(self.read_byte, 2),
+                src_blend            = self.read_byte(), # D3DBLEND
+                dst_blend            = self.read_byte(), # D3DBLEND
                 use_backface_culling = self.read_byte(),
                 texture0_ptr         = self.read_long_auto(),
                 texture1_ptr         = self.read_long_auto(),
@@ -1192,7 +1203,8 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
                 unk8d                = self.read_long_auto(),
             )
             self.check_unknown_fields('material', material, {
-                'unk2b': {(5, 6), (5, 2)}, # evmap09_02.mxe
+                'src_blend': {5, 2},
+                'dst_blend': {6, 2, 1},
                 #'unk5a': (1,1,1,1), # evmap08_01
                 'unk5b': (0,0,0,1),
                 #'unk5c': (1,1,1,0), # evmap08_01
@@ -1209,18 +1221,21 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
                 ptr                  = self.tell_ptr(),
                 flags1               = self.read_long_auto(),
                 num_textures         = self.read_byte(),
-                unk2b                = read_tuple(self.read_byte, 2),
+                src_blend            = self.read_byte(), # D3DBLEND
+                dst_blend            = self.read_byte(), # D3DBLEND
                 use_backface_culling = self.read_byte(),
                 shader_hash          = self.read_long_long_le(),
-                unk3a                = self.read_long_long_le(),
+                unk3a                = self.read_long_auto(),
                 unk3b                = self.read_long_auto(),
-                unk3c                = self.read_long_auto(), # hash or float?
+                unk3c                = self.read_long_auto(),
+                unk3d                = self.read_long_auto(), # hash or float?
                 pad4a                = self.read(4),
                 unk4b                = self.read(4),
                 unk4c                = self.read_float_auto(),
-                pad4da               = self.read(1),
+                unk4da               = self.read_byte(),
                 num_parameters       = self.read_byte(),
-                pad4dc               = self.read(2),
+                unk4dc               = self.read_byte(),
+                pad4dd               = self.read(1),
                 unk5a                = read_tuple(self.read_float_auto, 4),
                 unk5b                = read_tuple(self.read_float_auto, 4),
                 unk5c                = read_tuple(self.read_float_auto, 4),
@@ -1235,34 +1250,68 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
                 padding              = self.read(0x48),
             )
             self.check_unknown_fields('material', material, {
-                'unk2b': {(5,6), (5,2), (2,1)},
-                'unk3a': set(range(11)),
-                'unk3b': {
-                    0,1,2,
-                    330,680, # vla005a
-                    444,556, # vlb106a
-                    521,     # vlb107a
-                    3,       # vl_vc301 (dlc1)
-                    681,682, # vl_bs003
-                    600,     # vl_puppet_a
-                    },
+                'src_blend': {5, 2},
+                'dst_blend': {6, 2, 1},
+                'unk3a': set(range(50)),
+                #'unk3c': {
+                #    0,1,2,
+                #    330,680, # vla005a
+                #    444,556, # vlb106a
+                #    521,     # vlb107a
+                #    3,       # vl_vc301 (dlc1)
+                #    681,682, # vl_bs003
+                #    600,     # vl_puppet_a
+                #    445,635,608, # evmap_ground_01_02_a
+                #    },
                 'unk4b': b'    ',
                 'unk4c': {
                     24,
                     160.9803924560547, # vl_pf016 (dlc1)
+                    1, # evmap_ground_01_01_a
+                    179.49696350097656, # evmap_ground_06_07_a
+                    200.0, # omap_ground_03_01a
                     },
-                'unk5a': {(1,1,1,1),(0,0,0,1),(0,0,0,0)},
-                'unk5b': (0,0,0,0),
-                'unk5c': (1,1,1,0), # vlb108a
-                'unk5d': (1,1,1,0),
+                'unk4da': {0,2}, # evmap_ground_06_02_a
+                'unk4dc': set(range(6)), # evmap_ground_02_02_a
+                'unk5a': {
+                    (1,1,1,1),(0,0,0,1),(0,0,0,0),
+                    (0.5799953937530518, 0.27499809861183167, 0.0, 1.0), # omap_ground_00_01a
+                    (1.0, 1.0, 1.0, 2.0), (0.0, 0.0, 0.0, 0.800000011920929), # omap_ground_06_01a
+                    },
+                'unk5b': {
+                    (0,0,0,0),
+                    (1,1,1,0), # evmap_ground_01_01_a
+                    (0.9174334406852722, 0.9174334406852722, 0.9174334406852722, 0.0), # evmap_ground_02_09_a
+                    },
+                'unk5c': {
+                    (1,1,1,0),
+                    (0.20000000298023224,0.20000000298023224,0.20000000298023224,0), # vlb108a, evmap_ground_02_02_a
+                    (0.7787594199180603,0.7787594199180603,0.7787594199180603,0), # vlb108a, evmap_ground_03_02_a
+                    (1.0, 0.7841535210609436, 0.7559999823570251, 0.0), # evmap_ground_03_08_a
+                    (0.5799953937530518, 0.27499809861183167, 0.0, 1.0), # omap_ground_00_01a
+                    (0.5799953937530518, 0.27499809861183167, 0.0, 0.0), # omap_ground_00_01a
+                    (5.0, 5.0, 5.0, 0.0), # omap_ground_06_01a
+                    },
+                'unk5d': {
+                    (1,1,1,0),
+                    (0,0,0,0), # evmap_ground_01_01_a
+                    }
             })
             shash = material.shader_hash
             material.shader_name = sid = VC4_SHADER_NAMES.get(shash) or hex(shash)[2:]
             material.traits = (VC4_SHADER_TRAITS.get(sid) or set()) | {'v4'}
             if VC4_SHADER_TRAITS.get(sid) is None:
-                print('unimplemented shader id ', sid)
-            if (material.flags1 & 0x24):
+                print('no traits for shader id ', sid)
+            if (material.flags1 & 0x24): # vlb112a etc - face uses (5,6) but shouldn't have alpha
+                # All VC4 shaders include an Alpha Clip check using the first texture alpha
+                # and a threshold uniform, but the source of the threshold value is unknown.
                 material.traits.add('alpha')
+                # Check the flags as a heuristic to avoid setting big parts of characters to Blend.
+                # This trait is only relevant to Blender Eevee, in Cycles it's effectively always on.
+                if (material.flags1 & 0x4) and material.src_blend == 5: # D3DBLEND_SRCALPHA
+                    material.traits.add('alphablend')
+            if material.dst_blend == 2: # D3DBLEND_ONE
+                material.traits.add('add_shader')
 
         return material
 
@@ -1270,15 +1319,25 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
         entry = InfoDict(
             id_hash     = self.read_long_long_le(),
             name_ptr    = self.read_long_long_le(),
-            unk1        = self.read_long_auto(),
-            unk2        = self.read_long_auto(),
+            type_spec   = read_tuple(self.read_long_auto, 2),
             pad1        = self.read(8),
-            data        = read_tuple(self.read_float_auto, 4),
-            padding     = self.read(16),
         )
+        if entry.type_spec == (1,0):
+            entry.update_fields(
+                data        = self.read_long_auto(),
+                padding     = self.read(16+12),
+            )
+        else:
+            entry.update_fields(
+                data        = read_tuple(self.read_float_auto, 4),
+                padding     = self.read(16),
+            )
         self.check_unknown_fields('material param', entry, {
-            'unk1': 5,
-            'unk2': 2,
+            'type_spec': {
+                (5,2),
+                (1,0), # lightmap_compo_type, use_normal_lerp
+                (5,1), # cDisplacementParam
+            },
         })
         return entry
 
@@ -1289,13 +1348,17 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
         for mat in material_list:
             if mat.get('parameter_ptr'):
                 self.follow_ptr(mat.parameter_ptr)
-                mat.parameters = [ self.read_material_param_struct() for i in range(mat.num_parameters) ]
+                mat.parameter_list = [ self.read_material_param_struct() for i in range(mat.num_parameters) ]
 
-                for param in mat.parameters:
+                for param in mat.parameter_list:
                     self.follow_ptr(param.name_ptr)
                     param.name = self.read_string()
 
                     assert hash_fnv1a64(param.name) == param.id_hash
+
+                mat.parameters = { param.name: param.data for param in mat.parameter_list }
+            else:
+                mat.parameters = {}
 
         self.materials = { mat.ptr: mat for mat in material_list }
 
@@ -1388,17 +1451,19 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
 
     def read_texture_struct(self, i):
         texture = InfoDict(
-            id          = i,
-            ptr         = self.tell_ptr(),
-            unk0        = self.read_long_auto(),
-            image       = self.read_word_auto(),
-            unk1        = self.read_word_auto(),
-            unk2        = self.read_float_auto(),
-            pad3a       = self.read(1),
-            unk3b       = self.read_byte(),
-            pad3c       = self.read(12-2),
-            unk4        = self.read_float_auto(),
-            unk5        = self.read_float_auto(),
+            id           = i,
+            ptr          = self.tell_ptr(),
+            unk0         = self.read_long_auto(),
+            image        = self.read_word_auto(),
+            unk1         = self.read_word_auto(),
+            blend_factor = self.read_float_auto(),
+            pad3a        = self.read(1),
+            unk3b        = self.read_byte(),
+            unk3c        = self.read_byte(),
+            unk3d        = self.read_byte(),
+            pad3c        = self.read(8),
+            unk4         = self.read_float_auto(),
+            unk5         = self.read_float_auto(),
         )
         if self.vc_game == 1:
             texture.update_fields(
@@ -1409,8 +1474,10 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
             self.check_unknown_fields('texture', texture, {
                 'unk0': {0,2,8},
                 'unk1': 0,
-                'unk2': 1,
+                'blend_factor': 1,
                 'unk3b': {1,3},
+                'unk3c': {0,1},
+                'unk3d': {0,1},
                 'unk4': 1, 'unk5': 1,
                 'unk7a': b'    ',
             })
@@ -1425,18 +1492,26 @@ class ValkKFMS(ValkFile, VC4VertexFormatMixin):
                 pad8        = self.read(16*2),
             )
             self.check_unknown_fields('texture', texture, {
-                'unk0': {0,2,8,9},
+                'unk0': {0,1,2,8,9},
                 'unk1': {0,1,2,3},
-                'unk2': {
-                    1,
-                    0,  # vl_vc301 (dlc1) - blend factor? set to 0 for damage texture
-                    },
+                #'blend_factor': {
+                #    1,
+                #    0,  # vl_vc301 (dlc1) - blend factor? set to 0 for damage texture
+                #    0.10000000149011612, # evmap_ground_02_02_a
+                #    0.07999999821186066, # evmap_ground_02_09_a
+                #    0.7961783409118652, # evmap_ground_03_02_a
+                #    0.5,0.20000000298023224,0.8248175382614136,0.8500000238418579,0.05999999865889549 #... evmap_ground_03_08_a
+                #    },
                 'unk3b': {1,3},
+                'unk3c': {0,1}, # omap_ground_06_01a
+                'unk3d': {0,1}, # omap_ground_06_01a
                 'unk4': 1, 'unk5': 1,
                 'unk7b': b'    ',
                 'unk7c': {
                     1,
                     0,  # vl_bs001
+                    101, 105, # evmap_ground_03_06_a
+                    97, 108, # evmap_ground_04_06_a
                     },
             })
         return texture

@@ -674,6 +674,33 @@ class KFMD_Model:
             material = material_dict['bpy'][mesh['has_vertex_colors']]
             mesh["bpy"].data.materials.append(material)
 
+            disp_node = material.node_tree.nodes.get("Displacement")
+            if disp_node and isinstance(disp_node, bpy.types.ShaderNodeGroup):
+                group_name = disp_node.node_tree.get('valkyria_special','')
+                if group_name.startswith('DisplaceWorldY'):
+                    self.add_displacement(mesh['bpy'], material, disp_node, group_name)
+
+    def add_displacement(self, obj, material, disp_node, group_name):
+        tex_node = disp_node.inputs['Image'].links[0].from_node
+        assert isinstance(tex_node, bpy.types.ShaderNodeTexImage)
+        uv_node = tex_node.inputs[0].links[0].from_node
+        assert isinstance(uv_node, bpy.types.ShaderNodeUVMap)
+
+        tex = bpy.data.textures.new(tex_node.image.name, 'IMAGE')
+        tex.image = tex_node.image
+        tex.factor_red = 0
+        tex.factor_blue = 0
+        tex.saturation = 0
+
+        mod = obj.modifiers.new('Displace', 'DISPLACE')
+        mod.texture = tex
+        mod.texture_coords = 'UV'
+        mod.uv_layer = uv_node.uv_map
+        mod.space = 'GLOBAL'
+        mod.direction = 'Z' if self.vscene.rotate_scene else 'Y'
+        mod.mid_level = 0.5
+        mod.strength = disp_node.inputs['Scale'].default_value
+
     def assign_uv_maps(self):
         uv_names = ["uv", "uv2", "uv3", "uv4", "uv5"]
         for mesh in self.meshes:
@@ -751,13 +778,14 @@ class DummyScene:
 
 
 class ValkyriaScene:
-    def __init__(self, context, source_file, name):
+    def __init__(self, context, source_file, name, rotate_scene):
         self.context = context
         self.source_file = source_file
         self.name = os.path.basename(name)
         self.filename = name
+        self.rotate_scene = rotate_scene
         self.image_manager = materials.ImageManager()
-        self.material_builder = materials.MaterialBuilder(self)
+        self.material_builder = materials.MaterialBuilder(self, rotate_scene=rotate_scene)
         self.extra_objects = []
 
     def create_scene(self, name):
@@ -778,7 +806,8 @@ class ValkyriaScene:
                 if area.type == 'VIEW_3D':
                     for space in area.spaces:
                         if space.type == 'VIEW_3D':
-                            space.clip_end = 20000
+                            space.clip_start = 1
+                            space.clip_end = 22000
                             space.shading.show_backface_culling = True
         self.scene.display_settings.display_device = 'sRGB'
         self.scene.view_settings.view_transform = 'Standard'
@@ -825,6 +854,8 @@ class ValkyriaScene:
         if isinstance(self.source_file, HMDL_Model) and hasattr(self, 'hmdl_htex_pack'):
             self.hmdl_htex_pack.build_blender(self)
             self.source_file.assign_materials(self.hmdl_htex_pack.htsf_images)
+        if self.rotate_scene:
+            self.fix_rotation()
 
     def fix_rotation(self):
         matrix = Matrix.Rotation(radians(90), 4, 'X')
@@ -883,7 +914,7 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
         else:
             self.report({'ERROR'}, "Unknown module file type: "+vfile.ftype)
             return
-        self.valk_scene = ValkyriaScene(context, model, filename)
+        self.valk_scene = ValkyriaScene(context, model, filename, self.rotate_scene)
         try:
             self.valk_scene.read_data()
         except FileNotFoundError as e:
@@ -892,8 +923,6 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
             message += '\nTry finding the file manually and copying it into the same folder as the model you attempted to open.'
             self.report({'ERROR'}, message)
         self.valk_scene.build_blender(self.create_scene)
-        if self.rotate_scene:
-            self.valk_scene.fix_rotation()
         #pose_filename = os.path.join(os.path.dirname(filename), "VALCA02AD.MLX")
         #self.valk_scene.pose_blender(pose_filename)
 
