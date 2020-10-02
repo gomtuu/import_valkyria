@@ -21,14 +21,22 @@ import os.path
 from math import radians, isfinite
 from collections import defaultdict
 import bpy, mathutils
-from mathutils import Vector, Matrix, Quaternion
+from mathutils import Vector, Matrix, Quaternion, Euler
 from bpy_extras.io_utils import ImportHelper
 from . import valkyria, materials
 
 
+ROTATE_SCENE_MATRIX = Matrix.Rotation(radians(90), 4, 'X')
+
 def make_transform_matrix(loc,rot,scale):
     mat_loc = Matrix.Translation(loc)
     mat_rot = Quaternion(rot).to_matrix().to_4x4()
+    mat_scale = Matrix.Diagonal([*scale, 1])
+    return mat_loc @ mat_rot @ mat_scale
+
+def make_transform_matrix_euler(loc,rot,scale,order='XYZ'):
+    mat_loc = Matrix.Translation(loc)
+    mat_rot = Euler(rot, order).to_matrix().to_4x4()
     mat_scale = Matrix.Diagonal([*scale, 1])
     return mat_loc @ mat_rot @ mat_scale
 
@@ -334,9 +342,9 @@ class MXEN_Model:
         self.texture_packs.append(htex_pack)
         return htex_pack
 
-    def add_model(self, hmdl):
+    def add_model(self, hmdl, filename):
         model_id = len(self.hmdl_models)
-        model = HMDL_Model(hmdl, model_id)
+        model = HMDL_Model(hmdl, model_id, model_name=filename, collection_path=['shared_models'])
         self.hmdl_models.append(model)
         return model
 
@@ -373,77 +381,90 @@ class MXEN_Model:
             merge_htx.find_inner_files()
         model_cache = {}
         texture_cache = {}
+        self.instance_models = []
+        self.instance_textures = []
         for mxec_model in mxec.models:
             if not "model_file" in mxec_model:
                 continue
             model_file_desc = mxec_model["model_file"]
-            print("Reading", model_file_desc["filename"])
-            model = model_cache.get(model_file_desc["filename"], None)
+            model_filename = model_file_desc["filename"]
+            model = model_cache.get(model_filename, None)
             if model is None:
+                print("Reading", model_filename)
                 if model_file_desc["is_inside"] == 0:
-                    hmd = self.open_file(model_file_desc["filename"])
+                    hmd = self.open_file(model_filename)
                     hmd.find_inner_files()
-                    model = self.add_model(hmd)
+                    model = self.add_model(hmd, model_filename)
                     model.read_data(vscene)
                 elif model_file_desc["is_inside"] == 0x200:
-                    hmd = mmf.named_models[model_file_desc["filename"]]
-                    model = self.add_model(hmd)
+                    hmd = mmf.named_models[model_filename]
+                    model = self.add_model(hmd, model_filename)
                     model.read_data(vscene)
-                model_cache[model_file_desc["filename"]] = model
-                model.mxec_filename = model_file_desc["filename"]
+                model_cache[model_filename] = model
             else:
-                self.hmdl_models.append(model)
+                model.as_collection = True
+            self.instance_models.append(model)
             self.instances.append((
-                Vector((mxec_model["location_x"], mxec_model["location_y"], mxec_model["location_z"])),
-                Vector((radians(mxec_model["rotation_x"]), radians(mxec_model["rotation_y"]), radians(mxec_model["rotation_z"]))),
+                (mxec_model["location_x"], mxec_model["location_y"], mxec_model["location_z"]),
+                (radians(mxec_model["rotation_x"]), radians(mxec_model["rotation_y"]), radians(mxec_model["rotation_z"])),
                 (mxec_model["scale_x"], mxec_model["scale_y"], mxec_model["scale_z"])
                 ))
             texture_file_desc = mxec_model["texture_file"]
-            texture_pack = texture_cache.get(texture_file_desc["filename"])
+            texture_pack_filename = texture_file_desc["filename"]
+            texture_pack = texture_cache.get(texture_pack_filename)
             if texture_pack is None:
                 if texture_file_desc["is_inside"] == 0:
-                    htx = self.open_file(texture_file_desc["filename"])
+                    htx = self.open_file(texture_pack_filename)
                     htx.find_inner_files()
                     texture_pack = self.add_htex(htx)
                     texture_pack.read_data(vscene)
                 elif texture_file_desc["is_inside"] == 0x100:
                     texture_pack = Texture_Pack()
                     for htsf_i in htr.texture_packs[texture_file_desc["htr_index"]]["htsf_ids"]:
-                        texture_filename = "{}-{:03d}".format(texture_file_desc["filename"], htsf_i)
+                        texture_filename = "{}-{:03d}".format(texture_pack_filename, htsf_i)
                         htsf = texture_pack.add_image(merge_htx.HTSF[htsf_i], texture_filename)
                         htsf.read_data(vscene)
                     self.texture_packs.append(texture_pack)
-                texture_cache[texture_file_desc["filename"]] = texture_pack
-            else:
-                self.texture_packs.append(texture_pack)
+                texture_pack.mxec_filename = texture_pack_filename
+                texture_cache[texture_pack_filename] = texture_pack
+            self.instance_textures.append(texture_pack)
 
     def build_blender(self, vscene):
-        for texture_pack, model, instance_info in zip(self.texture_packs, self.hmdl_models, self.instances):
-            if texture_pack.blender_built:
-                pass
-            else:
+        # Build models
+        for model in self.hmdl_models:
+            model.build_blender(vscene)
+            model.mxec_texture_pack = None
+        # Build texture packs
+        for texture_pack in self.texture_packs:
+            if not texture_pack.blender_built:
                 texture_pack.build_blender(vscene)
-            if model.empty:
-                # Model has already been built and has an "empty" object
-                bpy.ops.object.select_all(action='DESELECT')
-                vscene.view_layer.objects.active = model.empty
-                model.empty.select_set(True)
-                bpy.ops.object.select_grouped(extend=True, type='CHILDREN_RECURSIVE')
-                bpy.ops.object.duplicate(linked=True)
-                instance = vscene.view_layer.objects.active
-            else:
-                model.build_blender(vscene)
-                model.empty.name = model.mxec_filename
+        # Combine and instantiate
+        for texture_pack, model, (loc,rot,scale) in zip(self.instance_textures, self.instance_models, self.instances):
+            if model.mxec_texture_pack is None:
+                model.mxec_texture_pack = texture_pack
                 model.assign_materials(texture_pack.htsf_images)
+            elif model.mxec_texture_pack != texture_pack:
+                print(
+                    "Texture pack mismatch for ", model.model_name, ": ",
+                    model.mxec_texture_pack.mxec_filename, " vs ", texture_pack.mxec_filename
+                )
+            matrix = make_transform_matrix_euler(loc, rot, scale, order='XYZ')
+            if model.as_collection:
+                instance = bpy.data.objects.new(model.model_name, None)
+                instance.instance_type = 'COLLECTION'
+                instance.instance_collection = model.collection
+                vscene.collection.objects.link(instance)
+                if vscene.rotate_scene:
+                    matrix @= ROTATE_SCENE_MATRIX.inverted()
+            else:
                 instance = model.empty
-            instance.location = instance_info[0]
-            instance.rotation_mode = 'XYZ'
-            instance.rotation_euler = instance_info[1]
-            instance.scale = instance_info[2]
+            instance.matrix_world = matrix
 
     def finalize_blender(self):
         for model in self.hmdl_models:
             model.finalize_blender()
+            if model.as_collection:
+                model.layer_collection.exclude = True
 
 
 class HSHP_Key_Set:
@@ -457,11 +478,13 @@ class HSHP_Key_Set:
 
 
 class HMDL_Model:
-    def __init__(self, source_file, model_id):
+    def __init__(self, source_file, model_id, *, model_name=None, collection_path=[], as_collection=False):
         self.F = source_file
         self.model_id = model_id
+        self.model_name = model_name
         self.kfmd_models = []
-        self.empty = None
+        self.as_collection = as_collection
+        self.collection_path = collection_path
 
     def add_model(self, kfmd):
         model_id = len(self.kfmd_models)
@@ -479,11 +502,19 @@ class HMDL_Model:
                 break
 
     def build_blender(self, vscene):
-        self.empty = bpy.data.objects.new("HMDL-{:03d}".format(self.model_id), None)
-        vscene.collection.objects.link(self.empty)
-        for model in self.kfmd_models:
-            model.build_blender(vscene)
-            model.empty.parent = self.empty
+        name = self.model_name or "HMDL-{:03d}".format(self.model_id)
+        if self.as_collection:
+            self.collection, self.layer_collection = vscene.get_sub_collection(*self.collection_path, name)
+            for model in self.kfmd_models:
+                model.build_blender(vscene, self.collection)
+                if vscene.rotate_scene:
+                    model.empty.matrix_world = ROTATE_SCENE_MATRIX
+        else:
+            self.empty = bpy.data.objects.new(name, None)
+            vscene.collection.objects.link(self.empty)
+            for model in self.kfmd_models:
+                model.build_blender(vscene)
+                model.empty.parent = self.empty
 
     def assign_materials(self, texture_pack):
         for model in self.kfmd_models:
@@ -513,7 +544,7 @@ class KFMD_Model:
     def build_armature(self, vscene):
         armature = bpy.data.objects.new("Armature",
             bpy.data.armatures.new("ArmatureData"))
-        vscene.collection.objects.link(armature)
+        self.collection.objects.link(armature)
         vscene.view_layer.objects.active = armature
         armature.select_set(True)
         armature.data.display_type = 'STICK'
@@ -561,7 +592,7 @@ class KFMD_Model:
             # Create mesh object
             mesh = bpy.data.meshes.new("MeshData-{:03d}".format(i))
             mesh_dict["bpy"] = bpy.data.objects.new("Mesh-{:03d}".format(i), mesh)
-            vscene.collection.objects.link(mesh_dict['bpy'])
+            self.collection.objects.link(mesh_dict['bpy'])
             mesh_dict["bpy"].parent = self.armature
             # Create mesh data
             vertices = [vertex["location"] for vertex in mesh_dict["vertices"]]
@@ -597,10 +628,11 @@ class KFMD_Model:
                 for vertex_id, weight in vertex_list:
                     vgroup.add([vertex_id], weight, 'ADD')
 
-    def build_blender(self, vscene):
+    def build_blender(self, vscene, collection=None):
+        self.collection = collection or vscene.collection
         self.vscene = vscene
         self.empty = bpy.data.objects.new("KFMD-{:03d}".format(self.model_id), None)
-        vscene.collection.objects.link(self.empty)
+        self.collection.objects.link(self.empty)
         self.armature = self.build_armature(vscene)
         self.armature.parent = self.empty
         self.build_meshes(vscene)
@@ -820,6 +852,21 @@ class ValkyriaScene:
     def create_collection(self, name):
         self.collection = bpy.data.collections.new(name)
         self.root_collection.children.link(self.collection)
+        self.layer_collection = self.root_layer_collection.children[self.collection.name]
+        self.layer_collection_map = {}
+
+    def get_sub_collection(self, *names):
+        layer_collection = self.layer_collection
+        for i in range(len(names)):
+            key = tuple(names[0:i+1])
+            child = self.layer_collection_map.get(key)
+            if not child:
+                collection = bpy.data.collections.new(names[i])
+                layer_collection.collection.children.link(collection)
+                child = layer_collection.children[collection.name]
+                self.layer_collection_map[key] = child
+            layer_collection = child
+        return layer_collection.collection, layer_collection
 
     def create_lamp(self):
         lamp_data = bpy.data.lights.new("Default Lamp", 'SUN')
@@ -863,13 +910,11 @@ class ValkyriaScene:
             self.fix_rotation()
 
     def fix_rotation(self):
-        matrix = Matrix.Rotation(radians(90), 4, 'X')
-
         self.view_layer.update()
 
         for obj in [*self.collection.objects, *self.extra_objects]:
             if not obj.parent:
-                obj.matrix_world = matrix @ obj.matrix_world
+                obj.matrix_world = ROTATE_SCENE_MATRIX @ obj.matrix_world
 
     def pose_blender(self, pose_filename):
         poses = IZCA_Poses(valkyria.files.valk_open(pose_filename)[0])
