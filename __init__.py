@@ -64,10 +64,10 @@ class HTEX_Pack:
         self.htsf_images.append(image)
         return image
 
-    def read_data(self):
+    def read_data(self, vscene):
         for htsf in self.F.HTSF:
             image = self.add_image(htsf)
-            image.read_data()
+            image.read_data(vscene)
 
     def build_blender(self, vscene):
         for image in self.htsf_images:
@@ -139,7 +139,7 @@ class HTSF_Image:
     def build_blender(self, vscene):
         self.vscene = vscene
 
-    def read_data(self):
+    def read_data(self, vscene):
         self.dds.read_data()
 
 
@@ -148,7 +148,7 @@ class MXTL_List:
         self.F = source_file
         self.texture_packs = []
 
-    def read_data(self):
+    def read_data(self, vscene):
         self.F.read_data()
         self.texture_lists = self.F.texture_lists
 
@@ -178,30 +178,30 @@ class IZCA_Model:
         self.hmdl_models.append(model)
         return model
 
-    def read_data(self):
+    def read_data(self, vscene):
         if hasattr(self.F, 'HSHP'):
             for hshp in self.F.HSHP:
                 shape_key_set = self.add_hshp(hshp)
-                shape_key_set.read_data()
+                shape_key_set.read_data(vscene)
         if getattr(self.F, 'MXTL', False):
             # read HMDL/HTSF associations from MXTL
             mxtl = MXTL_List(self.F.MXTL[0])
-            mxtl.read_data()
+            mxtl.read_data(vscene)
             for model_i, texture_list in enumerate(mxtl.texture_lists):
                 texture_pack = Texture_Pack()
                 for htsf_i, filename in texture_list:
                     htsf = texture_pack.add_image(self.F.HTSF[htsf_i], filename)
-                    htsf.read_data()
+                    htsf.read_data(vscene)
                 self.texture_packs.append(texture_pack)
                 model = self.add_model(self.F.HMDL[model_i])
-                model.read_data()
+                model.read_data(vscene)
         else:
             # deduce HMDL/HTEX associations
             for hmd, htx in zip(self.F.HMDL, self.F.HTEX):
                 htex_pack = self.add_htex(htx)
-                htex_pack.read_data()
+                htex_pack.read_data(vscene)
                 model = self.add_model(hmd)
-                model.read_data()
+                model.read_data(vscene)
 
     def build_blender(self, vscene):
         for texture_pack, model in zip(self.texture_packs, self.hmdl_models):
@@ -222,7 +222,7 @@ class IZCA_Poses:
         self.F = source_file
         self.poses = []
 
-    def read_data(self):
+    def read_data(self, vscene):
         for hmot in self.F.HMOT:
             hmot.read_data()
             self.poses.append(hmot.bones)
@@ -287,21 +287,21 @@ class ABRS_Model:
         self.hmdl_models.append(model)
         return model
 
-    def read_data(self):
+    def read_data(self, vscene):
         texture_pack = None
         htex_count = 0
         self.first_texture_pack = None
         for inner_file in self.F.inner_files:
             if inner_file.ftype == 'HMDL':
                 model = self.add_model(inner_file)
-                model.read_data()
+                model.read_data(vscene)
                 texture_pack = Texture_Pack()
                 self.texture_packs.append(texture_pack)
             elif inner_file.ftype == 'HTEX':
                 if not texture_pack:
                     texture_pack = self.first_texture_pack = Texture_Pack()
                 htex_pack = HTEX_Pack(inner_file, htex_count)
-                htex_pack.read_data()
+                htex_pack.read_data(vscene)
                 for htsf in htex_pack.htsf_images:
                     texture_pack.htsf_images.append(htsf)
                 htex_count += 1
@@ -358,7 +358,7 @@ class MXEN_Model:
             raise FileNotFoundError(filename)
         return opened_file
 
-    def read_data(self):
+    def read_data(self, vscene):
         mxec = self.F.MXEC[0]
         mxec.read_data()
         if hasattr(mxec, "mmf_file"):
@@ -384,11 +384,11 @@ class MXEN_Model:
                     hmd = self.open_file(model_file_desc["filename"])
                     hmd.find_inner_files()
                     model = self.add_model(hmd)
-                    model.read_data()
+                    model.read_data(vscene)
                 elif model_file_desc["is_inside"] == 0x200:
                     hmd = mmf.named_models[model_file_desc["filename"]]
                     model = self.add_model(hmd)
-                    model.read_data()
+                    model.read_data(vscene)
                 model_cache[model_file_desc["filename"]] = model
                 model.mxec_filename = model_file_desc["filename"]
             else:
@@ -405,13 +405,13 @@ class MXEN_Model:
                     htx = self.open_file(texture_file_desc["filename"])
                     htx.find_inner_files()
                     texture_pack = self.add_htex(htx)
-                    texture_pack.read_data()
+                    texture_pack.read_data(vscene)
                 elif texture_file_desc["is_inside"] == 0x100:
                     texture_pack = Texture_Pack()
                     for htsf_i in htr.texture_packs[texture_file_desc["htr_index"]]["htsf_ids"]:
                         texture_filename = "{}-{:03d}".format(texture_file_desc["filename"], htsf_i)
                         htsf = texture_pack.add_image(merge_htx.HTSF[htsf_i], texture_filename)
-                        htsf.read_data()
+                        htsf.read_data(vscene)
                     self.texture_packs.append(texture_pack)
                 texture_cache[texture_file_desc["filename"]] = texture_pack
             else:
@@ -451,7 +451,7 @@ class HSHP_Key_Set:
         self.F = source_file
         self.shape_key_set_id = shape_key_set_id
 
-    def read_data(self):
+    def read_data(self, vscene):
         self.F.read_data()
         self.shape_keys = self.F.shape_keys
 
@@ -469,10 +469,14 @@ class HMDL_Model:
         self.kfmd_models.append(model)
         return model
 
-    def read_data(self):
+    def read_data(self, vscene):
         for kfmd in self.F.KFMD:
             model = self.add_model(kfmd)
-            model.read_data()
+            model.read_data(vscene)
+
+            # Heuristic: assume the remaining models are LOD meshes
+            if vscene.lod_filter:
+                break
 
     def build_blender(self, vscene):
         self.empty = bpy.data.objects.new("HMDL-{:03d}".format(self.model_id), None)
@@ -637,7 +641,7 @@ class KFMD_Model:
 
             mesh["vertex_groups"] = vertex_groups
 
-    def read_data(self):
+    def read_data(self, vscene):
         self.F.read_data()
         self.bones = self.F.bones
         self.materials = self.F.materials
@@ -778,12 +782,13 @@ class DummyScene:
 
 
 class ValkyriaScene:
-    def __init__(self, context, source_file, name, rotate_scene):
+    def __init__(self, context, source_file, name, *, rotate_scene, lod_filter):
         self.context = context
         self.source_file = source_file
         self.name = os.path.basename(name)
         self.filename = name
         self.rotate_scene = rotate_scene
+        self.lod_filter = lod_filter
         self.image_manager = materials.ImageManager()
         self.material_builder = materials.MaterialBuilder(self, rotate_scene=rotate_scene)
         self.extra_objects = []
@@ -826,7 +831,7 @@ class ValkyriaScene:
         self.extra_objects.append(lamp)
 
     def read_data(self):
-        self.source_file.read_data()
+        self.source_file.read_data(self)
         if isinstance(self.source_file, HMDL_Model):
             possible_files = []
             possible_files.append(self.filename[0:-4] + '.htx')
@@ -840,7 +845,7 @@ class ValkyriaScene:
             if htex is not None:
                 htex.find_inner_files()
                 self.hmdl_htex_pack = HTEX_Pack(htex, 0)
-                self.hmdl_htex_pack.read_data()
+                self.hmdl_htex_pack.read_data(self)
 
     def build_blender(self, create_scene):
         if create_scene:
@@ -869,7 +874,7 @@ class ValkyriaScene:
     def pose_blender(self, pose_filename):
         poses = IZCA_Poses(valkyria.files.valk_open(pose_filename)[0])
         poses.F.find_inner_files()
-        poses.read_data()
+        poses.read_data(self)
         poses.pose_model(self.source_file)
 
 
@@ -894,6 +899,11 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
             description="Rotate the imported scene to match the Blender 'Z Up' convention"
             )
 
+    lod_filter: bpy.props.BoolProperty(
+            default=False, name="Skip LOD Meshes",
+            description="Skip loading reduced level of detail meshes (heuristic hack)"
+            )
+
     def import_file(self, context, filename):
         vfile = valkyria.files.valk_open(filename)[0]
         vfile.find_inner_files()
@@ -907,14 +917,19 @@ class ImportValkyria(bpy.types.Operator, ImportHelper):
             model = MXEN_Model(vfile)
         elif vfile.ftype == 'HTEX':
             pack = HTEX_Pack(vfile, 0)
-            pack.read_data()
-            pack.build_blender(DummyScene())
+            vscene = DummyScene()
+            pack.read_data(vscene)
+            pack.build_blender(vscene)
             pack.build_raw_texture_planes()
             return
         else:
             self.report({'ERROR'}, "Unknown module file type: "+vfile.ftype)
             return
-        self.valk_scene = ValkyriaScene(context, model, filename, self.rotate_scene)
+        self.valk_scene = ValkyriaScene(
+            context, model, filename,
+            rotate_scene=self.rotate_scene,
+            lod_filter=self.lod_filter,
+        )
         try:
             self.valk_scene.read_data()
         except FileNotFoundError as e:
