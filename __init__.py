@@ -615,6 +615,28 @@ class KFMD_Model:
         bpy.ops.object.mode_set(mode = 'OBJECT')
         return armature
 
+    def check_single_vgroup(self, mesh):
+        vgroups = mesh["vertex_groups"]
+
+        # There is only one bone
+        bones = list(vgroups.keys())
+        if len(bones) != 1:
+            return None
+
+        # The bone affects all vertices
+        vdefs = vgroups[bones[0]]
+        if len(vdefs) != len(mesh["vertices"]):
+            return None
+
+        return "Bone-{:02x}".format(bones[0])
+
+    def assign_parent_bone(self, mesh_dict, parent_bone, rest_matrix):
+        bone = self.armature.data.bones[parent_bone]
+        bone_matrix = bone.matrix_local @ Matrix.Translation((0,bone.length,0))
+        mesh_dict["bpy"].parent_type = 'BONE'
+        mesh_dict["bpy"].parent_bone = parent_bone
+        mesh_dict["bpy"].matrix_parent_inverse = bone_matrix.inverted() @ rest_matrix
+
     def build_meshes(self, vscene):
         for i, mesh_dict in enumerate(self.meshes):
             # Create mesh object
@@ -632,22 +654,22 @@ class KFMD_Model:
             parent_bone = self.bones[parent_bone_id]
             # Parent meshes with vertex groups to the armature, and others to bones or the object
             if mesh_dict["object"]["parent_is_armature"]:
-                mesh_dict["bpy"].parent_type = 'ARMATURE'
-                mesh_dict["bpy"].matrix_parent_inverse = parent_bone["accum_matrix"]
+                # Armature deformation is expensive, try to downgrade to bone parenting if only one bone
+                vgroup_parent = self.check_single_vgroup(mesh_dict)
+                if vgroup_parent and vgroup_parent in self.armature.data.bones:
+                    self.assign_parent_bone(mesh_dict, vgroup_parent, parent_bone["accum_matrix"])
+                else:
+                    mesh_dict["bpy"].parent_type = 'ARMATURE'
+                    mesh_dict["bpy"].matrix_parent_inverse = parent_bone["accum_matrix"]
             elif parent_bone["name"] in self.armature.data.bones:
-                bone = self.armature.data.bones[parent_bone["name"]]
-                bone_matrix = bone.matrix_local @ Matrix.Translation((0,bone.length,0))
-                mesh_dict["bpy"].parent_type = 'BONE'
-                mesh_dict["bpy"].parent_bone = parent_bone["name"]
-                mesh_dict["bpy"].matrix_parent_inverse = bone_matrix.inverted() @ parent_bone["accum_matrix"]
+                self.assign_parent_bone(mesh_dict, parent_bone["name"], parent_bone["accum_matrix"])
             else:
                 mesh_dict["bpy"].parent_type = 'OBJECT'
                 mesh_dict["bpy"].matrix_parent_inverse = parent_bone["accum_matrix"]
 
     def assign_vertex_groups(self):
         for mesh in self.meshes:
-            for local_id, vertex_list in mesh["vertex_groups"].items():
-                global_id = mesh["vertex_group_map"][local_id]
+            for global_id, vertex_list in mesh["vertex_groups"].items():
                 vgroup_name = "Bone-{:02x}".format(global_id)
                 if vgroup_name in mesh["bpy"].vertex_groups:
                     vgroup = mesh["bpy"].vertex_groups[vgroup_name]
@@ -674,6 +696,7 @@ class KFMD_Model:
                        ("vertex_group_3", "vertex_group_weight_3"),
                        ("vertex_group_4", "vertex_group_weight_4")]
         for mesh in self.meshes:
+            id_map = mesh["vertex_group_map"]
             vertex_groups = defaultdict(list)
 
             for i, vertex in enumerate(mesh["vertices"]):
@@ -699,7 +722,7 @@ class KFMD_Model:
                 for group, weight in weights.items():
                     vertex_groups[group].append([i, weight])
 
-            mesh["vertex_groups"] = vertex_groups
+            mesh["vertex_groups"] = { id_map[k]: v for k,v in vertex_groups.items() }
 
     def read_data(self, vscene):
         self.F.read_data()
