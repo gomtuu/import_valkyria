@@ -25,6 +25,7 @@ from mathutils import Vector, Matrix, Quaternion, Euler
 from bpy_extras.io_utils import ImportHelper
 from . import valkyria, materials
 
+DEBUG = False
 
 ROTATE_SCENE_MATRIX = Matrix.Rotation(radians(90), 4, 'X')
 
@@ -39,6 +40,9 @@ def make_transform_matrix_euler(loc,rot,scale,order='XYZ'):
     mat_rot = Euler(rot, order).to_matrix().to_4x4()
     mat_scale = Matrix.Diagonal([*scale, 1])
     return mat_loc @ mat_rot @ mat_scale
+
+def matrix_difference(mat1, mat2):
+    return max(max(abs(a - b) for a, b in zip(ra, rb)) for ra, rb in zip(mat1, mat2))
 
 
 class Texture_Pack:
@@ -381,11 +385,13 @@ class MXEN_Model:
             merge_htx.find_inner_files()
         model_cache = {}
         texture_cache = {}
+        self.instance_ids = []
         self.instance_models = []
         self.instance_textures = []
-        for mxec_model in mxec.models:
+        for i, mxec_model in enumerate(mxec.models):
             if not "model_file" in mxec_model:
                 continue
+            self.instance_ids.append(i)
             model_file_desc = mxec_model["model_file"]
             model_filename = model_file_desc["filename"]
             model = model_cache.get(model_filename, None)
@@ -439,7 +445,7 @@ class MXEN_Model:
             if not texture_pack.blender_built:
                 texture_pack.build_blender(vscene)
         # Combine and instantiate
-        for texture_pack, model, (loc,rot,scale) in zip(self.instance_textures, self.instance_models, self.instances):
+        for i, texture_pack, model, (loc,rot,scale) in zip(self.instance_ids, self.instance_textures, self.instance_models, self.instances):
             if model.mxec_texture_pack is None:
                 model.mxec_texture_pack = texture_pack
                 model.assign_materials(texture_pack.htsf_images)
@@ -459,6 +465,9 @@ class MXEN_Model:
             else:
                 instance = model.empty
             instance.matrix_world = matrix
+            if DEBUG:
+                instance['id'] = i
+                instance['model_path'] = '{}:{:x}'.format(':'.join(model.F.container_path()), model.F.container_offset())
 
     def finalize_blender(self):
         for model in self.hmdl_models:
@@ -549,19 +558,36 @@ class KFMD_Model:
         armature.select_set(True)
         armature.data.display_type = 'STICK'
         bpy.ops.object.mode_set(mode = 'EDIT')
-        for bone in self.bones:
+        common_bias_matrix = None
+        for i, bone in enumerate(self.bones):
             if 'deform_id' in bone:
                 bone['name'] = "Bone-{:02x}".format(bone['deform_id'])
             else:
                 bone['name'] = "Bone-{:02x}".format(bone['id'])
-            bone["matrix"] = make_transform_matrix(bone["location"], bone["rotation"], bone["scale"])
+            # Root bone location breaks:
+            #   VC1: valcA08cX_h (body)
+            #   VC4: omap_ground_00_01_a (grass,flowers)
+            # Root bone rotation required:
+            #   VC1: valcA08bX_h (body)
+            bone_loc = bone["location"] if i != 0 else (0,0,0)
+            bone["matrix"] = make_transform_matrix(bone_loc, bone["rotation"], bone["scale"])
             if bone["parent"]:
                 bone["accum_matrix"] = bone["parent"]["accum_matrix"]
-                bone["head"] = bone["accum_matrix"] @ Vector(bone["location"])
+                bone["head"] = bone["accum_matrix"] @ Vector(bone_loc)
                 bone["accum_matrix"] = bone["accum_matrix"] @ bone["matrix"]
             else:
                 bone["accum_matrix"] = bone["matrix"]
-                bone["head"] = Vector(bone["location"])
+                bone["head"] = Vector(bone_loc)
+            # Check that deform bone rest matrices are consistent
+            if i == 0:
+                common_bias_matrix = bone["accum_matrix"]
+            if 'matrix_raw' in bone:
+                bias_matrix = bone["accum_matrix"] @ Matrix(bone["matrix_raw"]).transposed()
+                if common_bias_matrix is None:
+                    common_bias_matrix = bias_matrix
+                elif matrix_difference(common_bias_matrix, bias_matrix) > 1e-4:
+                    print('Varying armature matrix bias: bone ', bone['id'], ' deform ', bone['deform_id'], '\n',
+                          'common: ', common_bias_matrix, '\nbone: ', bias_matrix)
         for bone in self.bones:
             # Default bone orientation and size
             if bone["parent"]:
@@ -583,6 +609,8 @@ class KFMD_Model:
                 bone["edit_bpy"].parent = bone["parent"]["edit_bpy"]
             bone["edit_bpy"].head = bone["head"]
             bone["edit_bpy"].tail = bone["tail"]
+            if DEBUG:
+                bone["edit_bpy"]["id"] = bone["id"]
             #print(bone["edit_bpy"], {k:v for k,v in bone.items() if k not in {'parent', 'children', 'matrix', 'accum_matrix', 'edit_bpy'}})
         bpy.ops.object.mode_set(mode = 'OBJECT')
         return armature
